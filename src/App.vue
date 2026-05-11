@@ -1,8 +1,7 @@
 <script setup>
 import QRCode from 'qrcode'
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
-
-const LoveSokoban = defineAsyncComponent(() => import('./games/LoveSokoban.vue'))
+import { computed, onMounted, ref, watch } from 'vue'
+import loveSokobanSprites from './assets/game/love-sokoban-sprites.png'
 
 const gifts = {
   gift_01: {
@@ -40,11 +39,43 @@ const copied = ref(false)
 const sokobanPassed = ref(false)
 const sokobanMessage = ref('把礼物盒推到发光的心上，就能打开第一份礼物。')
 const moveCount = ref(0)
-const sokobanRef = ref(null)
+const playerPosition = ref({ row: 4, col: 1 })
+const boxes = ref([
+  { id: 'box_1', row: 2, col: 2, placed: false },
+  { id: 'box_2', row: 3, col: 3, placed: false },
+])
+const moveHistory = ref([])
+
+const boardRows = 6
+const boardCols = 6
+const wallCells = ['0-0', '0-1', '0-2', '0-3', '0-4', '0-5', '1-0', '1-5', '2-0', '2-5', '3-0', '3-5', '4-0', '4-5', '5-0', '5-1', '5-2', '5-3', '5-4', '5-5', '2-3']
+const targetCells = ['1-4', '4-4']
 
 const urlGiftKey = computed(() => new URLSearchParams(window.location.search).get('gift') || '')
 const isGiftMode = computed(() => Boolean(urlGiftKey.value))
 const needsChallenge = computed(() => urlGiftKey.value === 'gift_01')
+const stars = computed(() => {
+  if (!sokobanPassed.value) return 0
+  if (moveCount.value <= 8) return 3
+  if (moveCount.value <= 12) return 2
+  return 1
+})
+const boardCells = computed(() => Array.from({ length: boardRows * boardCols }, (_, index) => {
+  const row = Math.floor(index / boardCols)
+  const col = index % boardCols
+  const key = `${row}-${col}`
+  const box = boxes.value.find((item) => item.row === row && item.col === col)
+
+  return {
+    key,
+    row,
+    col,
+    isWall: wallCells.includes(key),
+    isTarget: targetCells.includes(key),
+    hasPlayer: playerPosition.value.row === row && playerPosition.value.col === col,
+    box,
+  }
+}))
 const activeGift = computed(() => gifts[urlGiftKey.value] || {
   number: '?',
   title: '一份还没写好的礼物',
@@ -84,11 +115,106 @@ const completeSokoban = () => {
   sokobanPassed.value = true
 }
 
+const samePosition = (first, second) => first.row === second.row && first.col === second.col
+
+const isOutside = (position) => (
+  position.row < 0 ||
+  position.row >= boardRows ||
+  position.col < 0 ||
+  position.col >= boardCols
+)
+
+const isWall = (position) => wallCells.includes(`${position.row}-${position.col}`)
+
+const findBox = (position) => boxes.value.find((box) => samePosition(box, position))
+
+const refreshBoxState = () => {
+  boxes.value = boxes.value.map((box) => ({
+    ...box,
+    placed: targetCells.includes(`${box.row}-${box.col}`),
+  }))
+}
+
+const movePlayer = (rowDelta, colDelta) => {
+  if (sokobanPassed.value) return
+
+  const nextPlayer = {
+    row: playerPosition.value.row + rowDelta,
+    col: playerPosition.value.col + colDelta,
+  }
+
+  if (isOutside(nextPlayer) || isWall(nextPlayer)) {
+    sokobanMessage.value = '这边是墙，换个方向靠近礼物盒。'
+    return
+  }
+
+  const pushedBox = findBox(nextPlayer)
+  let nextBoxes = boxes.value.map((box) => ({ ...box }))
+
+  if (pushedBox) {
+    const nextBox = {
+      row: pushedBox.row + rowDelta,
+      col: pushedBox.col + colDelta,
+    }
+
+    if (isOutside(nextBox) || isWall(nextBox) || findBox(nextBox)) {
+      sokobanMessage.value = '礼物盒被挡住啦，试试绕到另一边。'
+      return
+    }
+
+    nextBoxes = nextBoxes.map((box) => (
+      box.id === pushedBox.id ? { ...box, ...nextBox } : box
+    ))
+  }
+
+  moveHistory.value.push({
+    player: { ...playerPosition.value },
+    boxes: boxes.value.map((box) => ({ ...box })),
+    moveCount: moveCount.value,
+    message: sokobanMessage.value,
+  })
+  playerPosition.value = nextPlayer
+  boxes.value = nextBoxes
+  moveCount.value += 1
+  refreshBoxState()
+
+  if (boxes.value.every((box) => box.placed)) {
+    sokobanMessage.value = '通关成功，所有礼物都到达心动目标点啦。'
+    completeSokoban()
+    return
+  }
+
+  sokobanMessage.value = '很好，把两个礼物盒都推到星星目标点上。'
+}
+
+const undoMove = () => {
+  const previous = moveHistory.value.pop()
+
+  if (!previous) {
+    sokobanMessage.value = '还没有可以撤销的步骤。'
+    return
+  }
+
+  playerPosition.value = previous.player
+  boxes.value = previous.boxes
+  moveCount.value = previous.moveCount
+  sokobanMessage.value = '已撤销上一步。'
+}
+
+const showHint = () => {
+  sokobanMessage.value = '提示：先把右侧礼物盒推到下方星星，再处理上方礼物盒。'
+}
+
 const resetSokoban = () => {
   sokobanPassed.value = false
   sokobanMessage.value = '把礼物盒推到发光的心上，就能打开第一份礼物。'
   moveCount.value = 0
-  sokobanRef.value?.reset()
+  playerPosition.value = { row: 4, col: 1 }
+  boxes.value = [
+    { id: 'box_1', row: 2, col: 2, placed: false },
+    { id: 'box_2', row: 3, col: 3, placed: false },
+  ]
+  moveHistory.value = []
 }
 
 onMounted(() => {
@@ -103,30 +229,48 @@ onMounted(() => {
     <section v-if="needsChallenge && !sokobanPassed" class="challenge-page">
       <div class="gift-number">Gift {{ activeGift.number }}</div>
       <h1>礼物通关大挑战</h1>
-      <p class="gift-line">第一关：把礼物盒推到发光的心上，解锁第一份礼物。</p>
+      <p class="gift-line">第一关：把所有礼物盒推到星星目标点，解锁第一份礼物。</p>
 
-      <div class="challenge-card">
-        <span>推箱子</span>
-        <strong>步数：{{ moveCount }}</strong>
-        <p>{{ sokobanMessage }}</p>
-      </div>
+      <section class="game-phone">
+        <header class="game-topbar">
+          <button class="round-button" type="button" aria-label="暂停">Ⅱ</button>
+          <span class="level-pill">关卡 01</span>
+          <div class="star-row" aria-label="星级">
+            <span v-for="item in 3" :key="item" :class="{ active: item <= stars }">★</span>
+          </div>
+          <button class="round-button" type="button" aria-label="设置">⚙</button>
+        </header>
 
-      <LoveSokoban
-        ref="sokobanRef"
-        @complete="completeSokoban"
-        @message="sokobanMessage = $event"
-        @move="moveCount = $event"
-      />
+        <div class="game-board" :style="{ '--sprite-sheet': `url(${loveSokobanSprites})` }">
+          <div
+            v-for="cell in boardCells"
+            :key="cell.key"
+            class="game-cell"
+            :class="{ wall: cell.isWall, target: cell.isTarget }"
+          >
+            <span v-if="cell.isTarget" class="tile-star">★</span>
+            <span v-if="cell.box" class="sprite box-sprite" :class="{ placed: cell.box.placed }"></span>
+            <span v-if="cell.hasPlayer" class="sprite player-sprite"></span>
+          </div>
+        </div>
+
+        <div class="game-message">
+          <strong>步数：{{ moveCount }}</strong>
+          <p>{{ sokobanMessage }}</p>
+        </div>
+      </section>
 
       <div class="sokoban-controls" aria-label="移动控制">
-        <button class="up" type="button" @click="sokobanRef?.move('up')">上</button>
-        <button class="left" type="button" @click="sokobanRef?.move('left')">左</button>
-        <button class="right" type="button" @click="sokobanRef?.move('right')">右</button>
-        <button class="down" type="button" @click="sokobanRef?.move('down')">下</button>
+        <button class="up" type="button" @click="movePlayer(-1, 0)">上</button>
+        <button class="left" type="button" @click="movePlayer(0, -1)">左</button>
+        <button class="right" type="button" @click="movePlayer(0, 1)">右</button>
+        <button class="down" type="button" @click="movePlayer(1, 0)">下</button>
       </div>
 
       <div class="challenge-actions">
+        <button class="secondary-button" type="button" @click="undoMove">撤销</button>
         <button class="secondary-button" type="button" @click="resetSokoban">重新开始</button>
+        <button class="secondary-button" type="button" @click="showHint">提示</button>
       </div>
     </section>
 

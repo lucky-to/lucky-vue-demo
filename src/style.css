@@ -256,24 +256,143 @@ select:focus {
   color: #7a4456;
 }
 
-.phaser-host {
-  width: 100%;
-  min-height: 430px;
-  border: 1px solid #ffd1dc;
-  border-radius: 8px;
-  overflow: hidden;
+.game-phone {
+  display: grid;
+  gap: 14px;
+  border: 2px solid #8db7d9;
+  border-radius: 26px;
+  padding: 14px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 241, 242, 0.62)),
-    radial-gradient(circle at 24% 18%, rgba(251, 113, 133, 0.28), transparent 28%),
-    radial-gradient(circle at 76% 64%, rgba(216, 180, 254, 0.28), transparent 30%);
-  box-shadow: inset 0 0 34px rgba(255, 255, 255, 0.62);
+    linear-gradient(180deg, #bfe3f7 0%, #e6f5ff 52%, #cfe7f4 100%);
+  box-shadow:
+    inset 0 0 0 4px rgba(255, 255, 255, 0.45),
+    0 18px 42px rgba(74, 119, 150, 0.22);
 }
 
-.phaser-host canvas {
-  display: block;
-  width: 100%;
-  max-width: 430px;
-  margin: 0 auto;
+.game-topbar {
+  display: grid;
+  grid-template-columns: 44px auto 1fr 44px;
+  gap: 10px;
+  align-items: center;
+}
+
+.round-button,
+.level-pill {
+  min-height: 40px;
+  border-radius: 999px;
+  color: #39547c;
+  background: #fff8ec;
+  box-shadow: 0 5px 0 rgba(99, 121, 153, 0.22);
+  font-weight: 900;
+}
+
+.round-button {
+  width: 44px;
+  border: 2px solid rgba(86, 129, 168, 0.28);
+  padding: 0;
+}
+
+.level-pill {
+  display: grid;
+  min-width: 92px;
+  place-items: center;
+  border: 2px solid rgba(86, 129, 168, 0.2);
+  padding: 0 14px;
+}
+
+.star-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  color: rgba(57, 84, 124, 0.35);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.star-row .active {
+  color: #ffbe45;
+  text-shadow: 0 2px 0 rgba(128, 86, 20, 0.16);
+}
+
+.game-board {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  border: 3px solid #89a9bb;
+  border-radius: 18px;
+  padding: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 244, 229, 0.32)),
+    #d1e1d7;
+}
+
+.game-cell {
+  position: relative;
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 8px;
+  background: #f6ead7;
+  box-shadow:
+    inset 0 -3px 0 rgba(154, 119, 76, 0.13),
+    inset 0 0 0 1px rgba(190, 157, 114, 0.18);
+}
+
+.game-cell.wall {
+  background: #b9c1c8;
+  box-shadow:
+    inset 0 -4px 0 rgba(79, 91, 105, 0.24),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.28);
+}
+
+.game-cell.target {
+  background: #cce891;
+  box-shadow:
+    inset 0 -4px 0 rgba(94, 145, 62, 0.2),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.42);
+}
+
+.tile-star {
+  color: #fff5ad;
+  font-size: 24px;
+  text-shadow: 0 2px 0 rgba(95, 131, 50, 0.28);
+}
+
+.sprite {
+  position: absolute;
+  width: 86%;
+  height: 86%;
+  background-image: var(--sprite-sheet);
+  background-repeat: no-repeat;
+  background-size: 200% 200%;
+  filter: drop-shadow(0 6px 6px rgba(90, 70, 80, 0.18));
+  z-index: 2;
+}
+
+.player-sprite {
+  background-position: 0 0;
+}
+
+.box-sprite {
+  background-position: 100% 0;
+}
+
+.box-sprite.placed {
+  transform: scale(0.94);
+}
+
+.game-message {
+  display: grid;
+  gap: 4px;
+  border-radius: 16px;
+  padding: 12px 14px;
+  color: #39547c;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.game-message strong,
+.game-message p {
+  margin: 0;
 }
 
 .sokoban-controls {
@@ -312,6 +431,8 @@ select:focus {
 
 .challenge-actions {
   display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 
 .signature {
@@ -354,7 +475,25 @@ select:focus {
     font-size: 16px;
   }
 
-  .phaser-host {
-    min-height: 380px;
+  .game-phone {
+    border-radius: 22px;
+    padding: 10px;
+  }
+
+  .game-topbar {
+    grid-template-columns: 40px auto 1fr 40px;
+    gap: 7px;
+  }
+
+  .round-button {
+    width: 40px;
+  }
+
+  .star-row {
+    font-size: 22px;
+  }
+
+  .challenge-actions {
+    grid-template-columns: 1fr;
   }
 }
