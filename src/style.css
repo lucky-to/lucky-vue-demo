@@ -256,61 +256,93 @@ select:focus {
   color: #7a4456;
 }
 
-.puzzle-board {
+.sokoban-board {
   display: grid;
-  gap: 10px;
-}
-
-.puzzle-piece {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
   border: 1px solid #ffd1dc;
   border-radius: 8px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 14px 30px rgba(159, 18, 57, 0.08);
-  cursor: grab;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 241, 242, 0.62)),
+    radial-gradient(circle at 24% 18%, rgba(251, 113, 133, 0.28), transparent 28%),
+    radial-gradient(circle at 76% 64%, rgba(216, 180, 254, 0.28), transparent 30%);
+  box-shadow: inset 0 0 34px rgba(255, 255, 255, 0.62);
 }
 
-.puzzle-piece.dragging {
-  opacity: 0.56;
-}
-
-.puzzle-piece.decoy {
-  border-style: dashed;
-  background: #fff7ed;
-}
-
-.puzzle-piece > span {
+.sokoban-cell {
+  position: relative;
   display: grid;
-  width: 34px;
-  height: 34px;
+  aspect-ratio: 1;
   place-items: center;
-  border-radius: 50%;
-  color: #ffffff;
-  background: var(--gift-color);
-  font-size: 13px;
-  font-weight: 900;
+  border: 1px solid rgba(255, 209, 220, 0.82);
+  border-radius: 8px;
+  background: rgba(255, 250, 251, 0.82);
+  overflow: hidden;
 }
 
-.puzzle-piece p {
-  margin: 0;
-  color: #4a2130;
-  font-size: 16px;
-  font-weight: 800;
+.sokoban-cell.wall {
+  background:
+    linear-gradient(135deg, rgba(121, 85, 105, 0.22), rgba(159, 18, 57, 0.18)),
+    #f9d7df;
 }
 
-.piece-actions {
+.sokoban-cell.target {
+  background: #fff1f2;
+}
+
+.sprite {
+  width: 82%;
+  height: 82%;
+  background-image: var(--sprite-sheet);
+  background-repeat: no-repeat;
+  background-size: 200% 200%;
+  filter: drop-shadow(0 8px 10px rgba(159, 18, 57, 0.18));
+}
+
+.player-sprite {
+  background-position: 0 0;
+}
+
+.box-sprite {
+  background-position: 100% 0;
+}
+
+.target-sprite {
+  position: absolute;
+  width: 70%;
+  height: 70%;
+  background-position: 0 100%;
+  opacity: 0.78;
+}
+
+.sokoban-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  justify-content: center;
+  gap: 10px;
+}
+
+.sokoban-controls button {
+  min-height: 48px;
+  border-radius: 8px;
+}
+
+.sokoban-controls .up,
+.sokoban-controls .down {
   grid-column: 2;
-  display: flex;
-  gap: 8px;
 }
 
-.piece-actions button,
+.sokoban-controls .left {
+  grid-column: 1;
+}
+
+.sokoban-controls .right {
+  grid-column: 3;
+}
+
 .secondary-button {
-  min-height: 34px;
+  min-height: 38px;
   border: 1px solid #fecdd3;
   padding: 0 12px;
   color: #9f1239;
@@ -318,15 +350,8 @@ select:focus {
   font-size: 13px;
 }
 
-.piece-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.42;
-}
-
 .challenge-actions {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
 }
 
 .signature {
@@ -369,16 +394,8 @@ select:focus {
     font-size: 16px;
   }
 
-  .puzzle-piece {
-    grid-template-columns: 30px minmax(0, 1fr);
+  .sokoban-board {
+    gap: 5px;
     padding: 10px;
-  }
-
-  .puzzle-piece p {
-    font-size: 15px;
-  }
-
-  .challenge-actions {
-    grid-template-columns: 1fr;
   }
 }

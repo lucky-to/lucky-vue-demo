@@ -1,6 +1,7 @@
 <script setup>
 import QRCode from 'qrcode'
 import { computed, onMounted, ref, watch } from 'vue'
+import loveSokobanSprites from './assets/game/love-sokoban-sprites.png'
 
 const gifts = {
   gift_01: {
@@ -35,26 +36,31 @@ const giftKey = ref('gift_01')
 const customKey = ref('')
 const qrCodeUrl = ref('')
 const copied = ref(false)
-const draggedIndex = ref(null)
-const puzzlePassed = ref(false)
-const puzzleMessage = ref('把碎片拖到正确顺序，拼出藏在第一份礼物前的那句话。')
+const sokobanPassed = ref(false)
+const sokobanMessage = ref('把礼物盒推到发光的心上，就能打开第一份礼物。')
+const moveCount = ref(0)
+const playerPosition = ref({ row: 3, col: 1 })
+const boxPosition = ref({ row: 2, col: 2 })
 
-const correctPuzzleOrder = ['piece_01', 'piece_02', 'piece_03', 'piece_04', 'piece_05', 'piece_06']
-const selectedOrder = ref(['piece_04', 'piece_07', 'piece_01', 'piece_06', 'piece_03', 'piece_02', 'piece_05'])
-const puzzlePieces = [
-  { id: 'piece_01', text: '遇见你以后，' },
-  { id: 'piece_02', text: '普通的' },
-  { id: 'piece_03', text: '日子' },
-  { id: 'piece_04', text: '也' },
-  { id: 'piece_05', text: '开始' },
-  { id: 'piece_06', text: '发光。' },
-  { id: 'piece_07', text: '今天先不告诉你答案' },
-]
+const boardRows = 5
+const boardCols = 5
+const wallCells = ['0-0', '0-1', '0-2', '0-3', '0-4', '1-0', '1-4', '2-0', '2-4', '3-0', '3-4', '4-0', '4-1', '4-2', '4-3', '4-4']
+const targetPosition = { row: 1, col: 3 }
 
 const urlGiftKey = computed(() => new URLSearchParams(window.location.search).get('gift') || '')
 const isGiftMode = computed(() => Boolean(urlGiftKey.value))
 const needsChallenge = computed(() => urlGiftKey.value === 'gift_01')
-const orderedPuzzlePieces = computed(() => selectedOrder.value.map((id) => puzzlePieces.find((piece) => piece.id === id)))
+const boardCells = computed(() => Array.from({ length: boardRows * boardCols }, (_, index) => {
+  const row = Math.floor(index / boardCols)
+  const col = index % boardCols
+  const key = `${row}-${col}`
+  const isWall = wallCells.includes(key)
+  const isTarget = row === targetPosition.row && col === targetPosition.col
+  const hasBox = row === boxPosition.value.row && col === boxPosition.value.col
+  const hasPlayer = row === playerPosition.value.row && col === playerPosition.value.col
+
+  return { key, row, col, isWall, isTarget, hasBox, hasPlayer }
+}))
 const activeGift = computed(() => gifts[urlGiftKey.value] || {
   number: '?',
   title: '一份还没写好的礼物',
@@ -90,48 +96,64 @@ const copyUrl = async () => {
   }, 1600)
 }
 
-const movePiece = (fromIndex, toIndex) => {
-  if (toIndex < 0 || toIndex >= selectedOrder.value.length || fromIndex === toIndex) {
+const isWall = (position) => wallCells.includes(`${position.row}-${position.col}`)
+
+const isOutside = (position) => (
+  position.row < 0 ||
+  position.row >= boardRows ||
+  position.col < 0 ||
+  position.col >= boardCols
+)
+
+const samePosition = (first, second) => first.row === second.row && first.col === second.col
+
+const movePlayer = (rowDelta, colDelta) => {
+  if (sokobanPassed.value) {
     return
   }
 
-  const nextOrder = [...selectedOrder.value]
-  const [piece] = nextOrder.splice(fromIndex, 1)
-  nextOrder.splice(toIndex, 0, piece)
-  selectedOrder.value = nextOrder
-  puzzleMessage.value = '顺序已经调整啦，再确认一下这句话是不是读得通。'
-}
+  const nextPlayer = {
+    row: playerPosition.value.row + rowDelta,
+    col: playerPosition.value.col + colDelta,
+  }
 
-const startDrag = (index) => {
-  draggedIndex.value = index
-}
-
-const dropPiece = (index) => {
-  if (draggedIndex.value === null) {
+  if (isOutside(nextPlayer) || isWall(nextPlayer)) {
+    sokobanMessage.value = '这边被挡住啦，换一条路试试。'
     return
   }
 
-  movePiece(draggedIndex.value, index)
-  draggedIndex.value = null
-}
+  if (samePosition(nextPlayer, boxPosition.value)) {
+    const nextBox = {
+      row: boxPosition.value.row + rowDelta,
+      col: boxPosition.value.col + colDelta,
+    }
 
-const checkPuzzle = () => {
-  const answer = selectedOrder.value.slice(0, correctPuzzleOrder.length)
-  const hasOnlyCorrectPieces = !selectedOrder.value.slice(0, correctPuzzleOrder.length).includes('piece_07')
+    if (isOutside(nextBox) || isWall(nextBox)) {
+      sokobanMessage.value = '礼物盒推不动啦，要从另一个方向靠近它。'
+      return
+    }
 
-  if (hasOnlyCorrectPieces && answer.join('|') === correctPuzzleOrder.join('|')) {
-    puzzlePassed.value = true
-    puzzleMessage.value = '通关成功。第一份礼物已经打开啦。'
+    boxPosition.value = nextBox
+  }
+
+  playerPosition.value = nextPlayer
+  moveCount.value += 1
+
+  if (samePosition(boxPosition.value, targetPosition)) {
+    sokobanPassed.value = true
+    sokobanMessage.value = '通关成功。礼物盒已经送到心上啦。'
     return
   }
 
-  puzzleMessage.value = '还差一点点。那句完整的话，应该像一句轻轻念出来的告白。'
+  sokobanMessage.value = '很好，再把礼物盒推到发光的心上。'
 }
 
-const resetPuzzle = () => {
-  selectedOrder.value = ['piece_04', 'piece_07', 'piece_01', 'piece_06', 'piece_03', 'piece_02', 'piece_05']
-  draggedIndex.value = null
-  puzzleMessage.value = '已恢复初始顺序，重新拼一次吧。'
+const resetSokoban = () => {
+  sokobanPassed.value = false
+  sokobanMessage.value = '把礼物盒推到发光的心上，就能打开第一份礼物。'
+  moveCount.value = 0
+  playerPosition.value = { row: 3, col: 1 }
+  boxPosition.value = { row: 2, col: 2 }
 }
 
 onMounted(() => {
@@ -143,41 +165,39 @@ onMounted(() => {
 
 <template>
   <main v-if="isGiftMode" class="gift-shell" :style="{ '--gift-color': activeGift.color }">
-    <section v-if="needsChallenge && !puzzlePassed" class="challenge-page">
+    <section v-if="needsChallenge && !sokobanPassed" class="challenge-page">
       <div class="gift-number">Gift {{ activeGift.number }}</div>
       <h1>礼物通关大挑战</h1>
-      <p class="gift-line">第一关：拼出一句情书。提示：有一块碎片是来捣乱的。</p>
+      <p class="gift-line">第一关：把礼物盒推到发光的心上，解锁第一份礼物。</p>
 
       <div class="challenge-card">
-        <span>通关目标</span>
-        <strong>遇见你以后，普通的日子也开始发光。</strong>
-        <p>{{ puzzleMessage }}</p>
+        <span>推箱子</span>
+        <strong>步数：{{ moveCount }}</strong>
+        <p>{{ sokobanMessage }}</p>
       </div>
 
-      <div class="puzzle-board" aria-label="情书碎片排序区">
-        <article
-          v-for="(piece, index) in orderedPuzzlePieces"
-          :key="piece.id"
-          class="puzzle-piece"
-          :class="{ decoy: piece.id === 'piece_07', dragging: draggedIndex === index }"
-          draggable="true"
-          @dragstart="startDrag(index)"
-          @dragover.prevent
-          @drop="dropPiece(index)"
-          @dragend="draggedIndex = null"
+      <div class="sokoban-board" :style="{ '--sprite-sheet': `url(${loveSokobanSprites})` }" aria-label="推箱子棋盘">
+        <div
+          v-for="cell in boardCells"
+          :key="cell.key"
+          class="sokoban-cell"
+          :class="{ wall: cell.isWall, target: cell.isTarget }"
         >
-          <span>{{ index + 1 }}</span>
-          <p>{{ piece.text }}</p>
-          <div class="piece-actions">
-            <button type="button" :disabled="index === 0" @click="movePiece(index, index - 1)">上移</button>
-            <button type="button" :disabled="index === selectedOrder.length - 1" @click="movePiece(index, index + 1)">下移</button>
-          </div>
-        </article>
+          <span v-if="cell.isTarget" class="sprite target-sprite" aria-hidden="true"></span>
+          <span v-if="cell.hasBox" class="sprite box-sprite" aria-label="礼物盒"></span>
+          <span v-if="cell.hasPlayer" class="sprite player-sprite" aria-label="你"></span>
+        </div>
+      </div>
+
+      <div class="sokoban-controls" aria-label="移动控制">
+        <button class="up" type="button" @click="movePlayer(-1, 0)">上</button>
+        <button class="left" type="button" @click="movePlayer(0, -1)">左</button>
+        <button class="right" type="button" @click="movePlayer(0, 1)">右</button>
+        <button class="down" type="button" @click="movePlayer(1, 0)">下</button>
       </div>
 
       <div class="challenge-actions">
-        <button type="button" @click="checkPuzzle">确认答案</button>
-        <button class="secondary-button" type="button" @click="resetPuzzle">重新打乱</button>
+        <button class="secondary-button" type="button" @click="resetSokoban">重新开始</button>
       </div>
     </section>
 
