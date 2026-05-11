@@ -1,7 +1,8 @@
 <script setup>
 import QRCode from 'qrcode'
-import { computed, onMounted, ref, watch } from 'vue'
-import loveSokobanSprites from './assets/game/love-sokoban-sprites.png'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+
+const LoveSokoban = defineAsyncComponent(() => import('./games/LoveSokoban.vue'))
 
 const gifts = {
   gift_01: {
@@ -39,28 +40,11 @@ const copied = ref(false)
 const sokobanPassed = ref(false)
 const sokobanMessage = ref('把礼物盒推到发光的心上，就能打开第一份礼物。')
 const moveCount = ref(0)
-const playerPosition = ref({ row: 3, col: 1 })
-const boxPosition = ref({ row: 2, col: 2 })
-
-const boardRows = 5
-const boardCols = 5
-const wallCells = ['0-0', '0-1', '0-2', '0-3', '0-4', '1-0', '1-4', '2-0', '2-4', '3-0', '3-4', '4-0', '4-1', '4-2', '4-3', '4-4']
-const targetPosition = { row: 1, col: 3 }
+const sokobanRef = ref(null)
 
 const urlGiftKey = computed(() => new URLSearchParams(window.location.search).get('gift') || '')
 const isGiftMode = computed(() => Boolean(urlGiftKey.value))
 const needsChallenge = computed(() => urlGiftKey.value === 'gift_01')
-const boardCells = computed(() => Array.from({ length: boardRows * boardCols }, (_, index) => {
-  const row = Math.floor(index / boardCols)
-  const col = index % boardCols
-  const key = `${row}-${col}`
-  const isWall = wallCells.includes(key)
-  const isTarget = row === targetPosition.row && col === targetPosition.col
-  const hasBox = row === boxPosition.value.row && col === boxPosition.value.col
-  const hasPlayer = row === playerPosition.value.row && col === playerPosition.value.col
-
-  return { key, row, col, isWall, isTarget, hasBox, hasPlayer }
-}))
 const activeGift = computed(() => gifts[urlGiftKey.value] || {
   number: '?',
   title: '一份还没写好的礼物',
@@ -96,64 +80,15 @@ const copyUrl = async () => {
   }, 1600)
 }
 
-const isWall = (position) => wallCells.includes(`${position.row}-${position.col}`)
-
-const isOutside = (position) => (
-  position.row < 0 ||
-  position.row >= boardRows ||
-  position.col < 0 ||
-  position.col >= boardCols
-)
-
-const samePosition = (first, second) => first.row === second.row && first.col === second.col
-
-const movePlayer = (rowDelta, colDelta) => {
-  if (sokobanPassed.value) {
-    return
-  }
-
-  const nextPlayer = {
-    row: playerPosition.value.row + rowDelta,
-    col: playerPosition.value.col + colDelta,
-  }
-
-  if (isOutside(nextPlayer) || isWall(nextPlayer)) {
-    sokobanMessage.value = '这边被挡住啦，换一条路试试。'
-    return
-  }
-
-  if (samePosition(nextPlayer, boxPosition.value)) {
-    const nextBox = {
-      row: boxPosition.value.row + rowDelta,
-      col: boxPosition.value.col + colDelta,
-    }
-
-    if (isOutside(nextBox) || isWall(nextBox)) {
-      sokobanMessage.value = '礼物盒推不动啦，要从另一个方向靠近它。'
-      return
-    }
-
-    boxPosition.value = nextBox
-  }
-
-  playerPosition.value = nextPlayer
-  moveCount.value += 1
-
-  if (samePosition(boxPosition.value, targetPosition)) {
-    sokobanPassed.value = true
-    sokobanMessage.value = '通关成功。礼物盒已经送到心上啦。'
-    return
-  }
-
-  sokobanMessage.value = '很好，再把礼物盒推到发光的心上。'
+const completeSokoban = () => {
+  sokobanPassed.value = true
 }
 
 const resetSokoban = () => {
   sokobanPassed.value = false
   sokobanMessage.value = '把礼物盒推到发光的心上，就能打开第一份礼物。'
   moveCount.value = 0
-  playerPosition.value = { row: 3, col: 1 }
-  boxPosition.value = { row: 2, col: 2 }
+  sokobanRef.value?.reset()
 }
 
 onMounted(() => {
@@ -176,24 +111,18 @@ onMounted(() => {
         <p>{{ sokobanMessage }}</p>
       </div>
 
-      <div class="sokoban-board" :style="{ '--sprite-sheet': `url(${loveSokobanSprites})` }" aria-label="推箱子棋盘">
-        <div
-          v-for="cell in boardCells"
-          :key="cell.key"
-          class="sokoban-cell"
-          :class="{ wall: cell.isWall, target: cell.isTarget }"
-        >
-          <span v-if="cell.isTarget" class="sprite target-sprite" aria-hidden="true"></span>
-          <span v-if="cell.hasBox" class="sprite box-sprite" aria-label="礼物盒"></span>
-          <span v-if="cell.hasPlayer" class="sprite player-sprite" aria-label="你"></span>
-        </div>
-      </div>
+      <LoveSokoban
+        ref="sokobanRef"
+        @complete="completeSokoban"
+        @message="sokobanMessage = $event"
+        @move="moveCount = $event"
+      />
 
       <div class="sokoban-controls" aria-label="移动控制">
-        <button class="up" type="button" @click="movePlayer(-1, 0)">上</button>
-        <button class="left" type="button" @click="movePlayer(0, -1)">左</button>
-        <button class="right" type="button" @click="movePlayer(0, 1)">右</button>
-        <button class="down" type="button" @click="movePlayer(1, 0)">下</button>
+        <button class="up" type="button" @click="sokobanRef?.move('up')">上</button>
+        <button class="left" type="button" @click="sokobanRef?.move('left')">左</button>
+        <button class="right" type="button" @click="sokobanRef?.move('right')">右</button>
+        <button class="down" type="button" @click="sokobanRef?.move('down')">下</button>
       </div>
 
       <div class="challenge-actions">
