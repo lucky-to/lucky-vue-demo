@@ -35,18 +35,26 @@ const giftKey = ref('gift_01')
 const customKey = ref('')
 const qrCodeUrl = ref('')
 const copied = ref(false)
-const gameStep = ref(0)
-const gamePassed = ref(false)
+const draggedIndex = ref(null)
+const puzzlePassed = ref(false)
+const puzzleMessage = ref('把碎片拖到正确顺序，拼出藏在第一份礼物前的那句话。')
 
-const challengeHearts = [
-  { label: '第一次心动', x: '20%', y: '24%' },
-  { label: '第二次靠近', x: '66%', y: '42%' },
-  { label: '第三次确定', x: '38%', y: '68%' },
+const correctPuzzleOrder = ['piece_01', 'piece_02', 'piece_03', 'piece_04', 'piece_05', 'piece_06']
+const selectedOrder = ref(['piece_04', 'piece_07', 'piece_01', 'piece_06', 'piece_03', 'piece_02', 'piece_05'])
+const puzzlePieces = [
+  { id: 'piece_01', text: '遇见你以后，' },
+  { id: 'piece_02', text: '普通的' },
+  { id: 'piece_03', text: '日子' },
+  { id: 'piece_04', text: '也' },
+  { id: 'piece_05', text: '开始' },
+  { id: 'piece_06', text: '发光。' },
+  { id: 'piece_07', text: '今天先不告诉你答案' },
 ]
 
 const urlGiftKey = computed(() => new URLSearchParams(window.location.search).get('gift') || '')
 const isGiftMode = computed(() => Boolean(urlGiftKey.value))
 const needsChallenge = computed(() => urlGiftKey.value === 'gift_01')
+const orderedPuzzlePieces = computed(() => selectedOrder.value.map((id) => puzzlePieces.find((piece) => piece.id === id)))
 const activeGift = computed(() => gifts[urlGiftKey.value] || {
   number: '?',
   title: '一份还没写好的礼物',
@@ -82,18 +90,48 @@ const copyUrl = async () => {
   }, 1600)
 }
 
-const tapHeart = (index) => {
-  if (index !== gameStep.value) {
-    gameStep.value = 0
+const movePiece = (fromIndex, toIndex) => {
+  if (toIndex < 0 || toIndex >= selectedOrder.value.length || fromIndex === toIndex) {
     return
   }
 
-  if (index === challengeHearts.length - 1) {
-    gamePassed.value = true
+  const nextOrder = [...selectedOrder.value]
+  const [piece] = nextOrder.splice(fromIndex, 1)
+  nextOrder.splice(toIndex, 0, piece)
+  selectedOrder.value = nextOrder
+  puzzleMessage.value = '顺序已经调整啦，再确认一下这句话是不是读得通。'
+}
+
+const startDrag = (index) => {
+  draggedIndex.value = index
+}
+
+const dropPiece = (index) => {
+  if (draggedIndex.value === null) {
     return
   }
 
-  gameStep.value += 1
+  movePiece(draggedIndex.value, index)
+  draggedIndex.value = null
+}
+
+const checkPuzzle = () => {
+  const answer = selectedOrder.value.slice(0, correctPuzzleOrder.length)
+  const hasOnlyCorrectPieces = !selectedOrder.value.slice(0, correctPuzzleOrder.length).includes('piece_07')
+
+  if (hasOnlyCorrectPieces && answer.join('|') === correctPuzzleOrder.join('|')) {
+    puzzlePassed.value = true
+    puzzleMessage.value = '通关成功。第一份礼物已经打开啦。'
+    return
+  }
+
+  puzzleMessage.value = '还差一点点。那句完整的话，应该像一句轻轻念出来的告白。'
+}
+
+const resetPuzzle = () => {
+  selectedOrder.value = ['piece_04', 'piece_07', 'piece_01', 'piece_06', 'piece_03', 'piece_02', 'piece_05']
+  draggedIndex.value = null
+  puzzleMessage.value = '已恢复初始顺序，重新拼一次吧。'
 }
 
 onMounted(() => {
@@ -105,29 +143,41 @@ onMounted(() => {
 
 <template>
   <main v-if="isGiftMode" class="gift-shell" :style="{ '--gift-color': activeGift.color }">
-    <section v-if="needsChallenge && !gamePassed" class="challenge-page">
+    <section v-if="needsChallenge && !puzzlePassed" class="challenge-page">
       <div class="gift-number">Gift {{ activeGift.number }}</div>
       <h1>礼物通关大挑战</h1>
-      <p class="gift-line">第一关：请按顺序点亮三颗心，解锁第一份礼物。</p>
-
-      <div class="heart-board">
-        <button
-          v-for="(heart, index) in challengeHearts"
-          :key="heart.label"
-          class="heart-button"
-          :class="{ active: index === gameStep, done: index < gameStep }"
-          :style="{ left: heart.x, top: heart.y }"
-          type="button"
-          @click="tapHeart(index)"
-        >
-          {{ index < gameStep ? '已点亮' : '心' }}
-        </button>
-      </div>
+      <p class="gift-line">第一关：拼出一句情书。提示：有一块碎片是来捣乱的。</p>
 
       <div class="challenge-card">
-        <span>当前进度</span>
-        <strong>{{ gameStep }} / {{ challengeHearts.length }}</strong>
-        <p>点错会从头开始。别急，第一份礼物很好哄。</p>
+        <span>通关目标</span>
+        <strong>遇见你以后，普通的日子也开始发光。</strong>
+        <p>{{ puzzleMessage }}</p>
+      </div>
+
+      <div class="puzzle-board" aria-label="情书碎片排序区">
+        <article
+          v-for="(piece, index) in orderedPuzzlePieces"
+          :key="piece.id"
+          class="puzzle-piece"
+          :class="{ decoy: piece.id === 'piece_07', dragging: draggedIndex === index }"
+          draggable="true"
+          @dragstart="startDrag(index)"
+          @dragover.prevent
+          @drop="dropPiece(index)"
+          @dragend="draggedIndex = null"
+        >
+          <span>{{ index + 1 }}</span>
+          <p>{{ piece.text }}</p>
+          <div class="piece-actions">
+            <button type="button" :disabled="index === 0" @click="movePiece(index, index - 1)">上移</button>
+            <button type="button" :disabled="index === selectedOrder.length - 1" @click="movePiece(index, index + 1)">下移</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="challenge-actions">
+        <button type="button" @click="checkPuzzle">确认答案</button>
+        <button class="secondary-button" type="button" @click="resetPuzzle">重新打乱</button>
       </div>
     </section>
 
