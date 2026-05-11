@@ -181,7 +181,8 @@ select:focus {
     linear-gradient(180deg, #fff1f2 0%, #ffe4ec 100%);
 }
 
-.gift-page {
+.gift-page,
+.challenge-page {
   display: grid;
   gap: 18px;
   max-width: 520px;
@@ -200,7 +201,8 @@ select:focus {
   font-weight: 900;
 }
 
-.gift-page h1 {
+.gift-page h1,
+.challenge-page h1 {
   margin: 0;
   color: #3b1f2b;
   font-size: 32px;
@@ -230,6 +232,71 @@ select:focus {
   font-size: 18px;
 }
 
+.heart-board {
+  position: relative;
+  min-height: 360px;
+  border: 1px solid #ffd1dc;
+  border-radius: 8px;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 241, 242, 0.62)),
+    radial-gradient(circle at 24% 18%, rgba(251, 113, 133, 0.32), transparent 28%),
+    radial-gradient(circle at 76% 64%, rgba(216, 180, 254, 0.3), transparent 30%);
+  box-shadow: inset 0 0 34px rgba(255, 255, 255, 0.62);
+}
+
+.heart-button {
+  position: absolute;
+  display: grid;
+  width: 84px;
+  height: 84px;
+  min-height: 84px;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  color: #9f1239;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(159, 18, 57, 0.18);
+  font-size: 14px;
+  font-weight: 900;
+  transform: translate(-50%, -50%);
+}
+
+.heart-button.active {
+  color: #ffffff;
+  background: var(--gift-color);
+  animation: pulse-heart 1.2s ease-in-out infinite;
+}
+
+.heart-button.done {
+  color: #ffffff;
+  background: #f472b6;
+}
+
+.challenge-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #ffd1dc;
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.challenge-card span {
+  color: #9f6476;
+  font-size: 13px;
+}
+
+.challenge-card strong {
+  color: var(--gift-color);
+  font-size: 24px;
+}
+
+.challenge-card p {
+  margin: 0;
+  color: #7a4456;
+}
+
 .signature {
   display: grid;
   justify-items: end;
@@ -253,7 +320,8 @@ select:focus {
   }
 
   .hero h1,
-  .gift-page h1 {
+  .gift-page h1,
+  .challenge-page h1 {
     font-size: 28px;
   }
 
@@ -267,5 +335,29 @@ select:focus {
 
   .letter-card p {
     font-size: 16px;
+  }
+
+  .heart-board {
+    min-height: 330px;
+  }
+
+  .heart-button {
+    width: 76px;
+    height: 76px;
+    min-height: 76px;
+    font-size: 13px;
+  }
+}
+
+@keyframes pulse-heart {
+  0%,
+  100% {
+    box-shadow: 0 16px 34px rgba(159, 18, 57, 0.18);
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  50% {
+    box-shadow: 0 20px 44px rgba(225, 29, 72, 0.32);
+    transform: translate(-50%, -50%) scale(1.06);
   }
 }

@@ -35,9 +35,18 @@ const giftKey = ref('gift_01')
 const customKey = ref('')
 const qrCodeUrl = ref('')
 const copied = ref(false)
+const gameStep = ref(0)
+const gamePassed = ref(false)
+
+const challengeHearts = [
+  { label: '第一次心动', x: '20%', y: '24%' },
+  { label: '第二次靠近', x: '66%', y: '42%' },
+  { label: '第三次确定', x: '38%', y: '68%' },
+]
 
 const urlGiftKey = computed(() => new URLSearchParams(window.location.search).get('gift') || '')
 const isGiftMode = computed(() => Boolean(urlGiftKey.value))
+const needsChallenge = computed(() => urlGiftKey.value === 'gift_01')
 const activeGift = computed(() => gifts[urlGiftKey.value] || {
   number: '?',
   title: '一份还没写好的礼物',
@@ -73,6 +82,20 @@ const copyUrl = async () => {
   }, 1600)
 }
 
+const tapHeart = (index) => {
+  if (index !== gameStep.value) {
+    gameStep.value = 0
+    return
+  }
+
+  if (index === challengeHearts.length - 1) {
+    gamePassed.value = true
+    return
+  }
+
+  gameStep.value += 1
+}
+
 onMounted(() => {
   if (!isGiftMode.value) {
     baseUrl.value = `${window.location.origin}${window.location.pathname}`
@@ -82,7 +105,33 @@ onMounted(() => {
 
 <template>
   <main v-if="isGiftMode" class="gift-shell" :style="{ '--gift-color': activeGift.color }">
-    <section class="gift-page">
+    <section v-if="needsChallenge && !gamePassed" class="challenge-page">
+      <div class="gift-number">Gift {{ activeGift.number }}</div>
+      <h1>礼物通关大挑战</h1>
+      <p class="gift-line">第一关：请按顺序点亮三颗心，解锁第一份礼物。</p>
+
+      <div class="heart-board">
+        <button
+          v-for="(heart, index) in challengeHearts"
+          :key="heart.label"
+          class="heart-button"
+          :class="{ active: index === gameStep, done: index < gameStep }"
+          :style="{ left: heart.x, top: heart.y }"
+          type="button"
+          @click="tapHeart(index)"
+        >
+          {{ index < gameStep ? '已点亮' : '心' }}
+        </button>
+      </div>
+
+      <div class="challenge-card">
+        <span>当前进度</span>
+        <strong>{{ gameStep }} / {{ challengeHearts.length }}</strong>
+        <p>点错会从头开始。别急，第一份礼物很好哄。</p>
+      </div>
+    </section>
+
+    <section v-else class="gift-page">
       <div class="gift-number">Gift {{ activeGift.number }}</div>
       <h1>{{ activeGift.title }}</h1>
       <p class="gift-line">{{ activeGift.line }}</p>
