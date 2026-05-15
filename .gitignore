@@ -24,3 +24,12 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Local verification artifacts
+preview-*.png
+verify-*.png
+dev-server.log
+vite-dev.log
+vite-dev.err.log
+vite-lan.log
+vite-lan.err.log

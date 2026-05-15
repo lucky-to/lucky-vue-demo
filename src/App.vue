@@ -1,87 +1,415 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { gsap } from 'gsap'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { letterText } from './data/letterContent'
 
-const letterText = `今天这个箱子，不只是礼物。
-
-是我偷偷准备了很久的一点点心意，
-想把见到你之前的期待，
-都认真地放进这里。
-
-希望你打开它的时候，
-能感觉到我真的很想见你，
-也真的很喜欢你。`
-
+const rootRef = ref(null)
 const canvasRef = ref(null)
 const envelopeHotspotRef = ref(null)
+const lidHotspotRef = ref(null)
 const stage = ref('intro')
 const typedLength = ref(0)
 const hasDragged = ref(false)
+const envelopeDismissed = ref(false)
 
 let renderer
 let scene
 let camera
 let boxGroup
+let lidGroup
+let lidHotspotAnchor
+let frontPanel
 let envelopeGroup
+let boxContentsGroup
 let animationFrame = 0
 let introTimer = 0
+let extractionTimer = 0
+let beginTypingTimer = 0
+let letterFxTimer = 0
 let typeTimer = 0
+let lidTimeline
 let resizeObserver
+let ambientContext
+let letterOpenTimeline
+let letterFxContext
+let signFxContext
+let caretContext
 let isDragging = false
+let isPinching = false
 let previousPointer = { x: 0, y: 0 }
-let targetRotation = { x: -0.2, y: -0.42 }
-let currentRotation = { x: -0.2, y: -0.42 }
+let activePointers = new Map()
+let pinchStartDistance = 0
+let pinchStartZoom = 1
+let targetRotation = { x: -0.22, y: -0.34 }
+let currentRotation = { x: -0.22, y: -0.34 }
+let targetZoom = 1
+let currentZoom = 1
 let introStart = 0
+let extractionStart = 0
 let cameraLookAt = new THREE.Vector3(0, 0.16, 0)
 const introDuration = 3800
+const extractionDuration = 860
+const envelopeBaseY = 1.7
+const envelopeBaseZ = 0.35
+const envelopeBaseRotationX = -0.58
+const envelopeBaseScale = 0.88
+const envelopeFloatAmplitude = 0.026
+const boxBaseScale = 0.74
+const boxMinZoom = 0.78
+const boxMaxZoom = 1.45
+const storageBox = {
+  width: 3.2,
+  depth: 2.4,
+  bodyHeight: 2.08,
+  lidHeight: 0.18,
+  lidOverhang: 0.13,
+  lidTopThickness: 0.045,
+  wallThickness: 0.04,
+}
+const storageBoxPalette = {
+  paper: '#f2eee3',
+  paperShadow: '#e7dfd0',
+  paperSide: '#eee8db',
+  paperLine: 'rgba(130, 121, 98, 0.18)',
+  inner: '#d8d7d2',
+  innerShadow: '#c2c0ba',
+  textBlue: '#9aa6dd',
+}
 
-const introCameraPath = [
-  {
-    t: 0,
-    position: new THREE.Vector3(0, 5.55, 5.08),
-    lookAt: new THREE.Vector3(0, 0.3, 0.02),
-    fov: 42,
-  },
-  {
-    t: 0.46,
-    position: new THREE.Vector3(0, 3.12, 5.96),
-    lookAt: new THREE.Vector3(0, 0.36, 0.02),
-    fov: 42,
-  },
-  {
-    t: 0.76,
-    position: new THREE.Vector3(0, 1.88, 6.32),
-    lookAt: new THREE.Vector3(0, 0.18, 0),
-    fov: 42,
-  },
-  {
-    t: 1,
-    position: new THREE.Vector3(0, 1.36, 6.48),
-    lookAt: new THREE.Vector3(0, 0.04, 0),
-    fov: 42,
-  },
-]
+const lidViewCamera = {
+  position: new THREE.Vector3(0, 3.55, 5.9),
+  lookAt: new THREE.Vector3(0, 0.72, 0),
+  fov: 42,
+}
 
-const smoothStep = (value) => value * value * (3 - 2 * value)
+const openBoxCamera = {
+  position: new THREE.Vector3(0, 7.35, 0.08),
+  lookAt: new THREE.Vector3(0, -0.48, 0),
+  fov: 38,
+}
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+const easeOutCubic = (value) => 1 - Math.pow(1 - value, 3)
+const easeInOutSine = (value) => -(Math.cos(Math.PI * value) - 1) / 2
+
+const introCameraStart = {
+  position: new THREE.Vector3(0, 4.9, 8.8),
+  lookAt: new THREE.Vector3(0, 0.04, 0),
+  fov: 39,
+}
+
+const introCameraEnd = {
+  position: new THREE.Vector3(0, 2.08, 6.36),
+  lookAt: new THREE.Vector3(0, 0.36, 0.02),
+  fov: 41,
+}
 
 const applyIntroCamera = (progress) => {
-  const nextIndex = introCameraPath.findIndex((point) => point.t >= progress)
-  const endIndex = nextIndex === -1 ? introCameraPath.length - 1 : Math.max(1, nextIndex)
-  const startFrame = introCameraPath[endIndex - 1]
-  const endFrame = introCameraPath[endIndex]
-  const segmentProgress = (progress - startFrame.t) / (endFrame.t - startFrame.t || 1)
-  const eased = smoothStep(Math.max(0, Math.min(1, segmentProgress)))
+  const clamped = Math.max(0, Math.min(1, progress))
+  const dollyProgress = easeInOutSine(clamped)
+  const settleProgress = easeOutCubic(clamped)
 
-  camera.position.lerpVectors(startFrame.position, endFrame.position, eased)
-  cameraLookAt.lerpVectors(startFrame.lookAt, endFrame.lookAt, eased)
-  camera.fov = startFrame.fov + (endFrame.fov - startFrame.fov) * eased
+  camera.position.lerpVectors(introCameraStart.position, introCameraEnd.position, dollyProgress)
+  cameraLookAt.lerpVectors(introCameraStart.lookAt, introCameraEnd.lookAt, dollyProgress)
+  camera.fov = introCameraStart.fov + (introCameraEnd.fov - introCameraStart.fov) * settleProgress
   camera.updateProjectionMatrix()
 }
 
+const setCameraPose = ({ position, lookAt, fov }) => {
+  if (!camera) return
+
+  camera.position.copy(position)
+  cameraLookAt.copy(lookAt)
+  camera.fov = fov
+  camera.updateProjectionMatrix()
+}
+
+const focusLidView = () => {
+  targetRotation = { x: -0.34, y: 0 }
+  currentRotation = { x: -0.34, y: 0 }
+  targetZoom = 0.86
+  currentZoom = 0.86
+  setCameraPose(lidViewCamera)
+}
+
 const typedText = computed(() => letterText.slice(0, typedLength.value))
-const canOpenEnvelope = computed(() => stage.value === 'ready')
+const isExtractingEnvelope = computed(() => stage.value === 'extracting')
 const isLetterOpen = computed(() => stage.value === 'opening' || stage.value === 'typing' || stage.value === 'done')
+const isBoxOpening = computed(() => stage.value === 'box-opening')
+const isBoxOpen = computed(() => stage.value === 'box-open')
+const canOpenEnvelope = computed(() =>
+  stage.value === 'ready' && !envelopeDismissed.value && !isExtractingEnvelope.value && !isLetterOpen.value
+)
+const canOpenLid = computed(() => stage.value === 'lid-ready')
+const showLetterSign = computed(() => stage.value === 'done')
+const hintText = computed(() => {
+  if (canOpenLid.value) return '点一下箱子盖，看看里面。'
+  if (isBoxOpening.value) return '箱子正在打开。'
+  if (isBoxOpen.value) return '里面的礼物和那封信都在这里。'
+  return hasDragged.value ? '点一下箱子上的信封。' : '镜头靠近后，可以拖动箱子，也可以点信封。'
+})
+
+const killGsapContext = (context) => {
+  context?.revert()
+}
+
+const setCanvasPointerCapture = (pointerId) => {
+  try {
+    canvasRef.value?.setPointerCapture?.(pointerId)
+  } catch {
+    // Some synthetic or interrupted pointer streams do not have an active pointer to capture.
+  }
+}
+
+const releaseCanvasPointerCapture = (pointerId) => {
+  try {
+    canvasRef.value?.releasePointerCapture?.(pointerId)
+  } catch {
+    // Ignore already-released pointer streams.
+  }
+}
+
+const startAmbientGsap = () => {
+  killGsapContext(ambientContext)
+  ambientContext = gsap.context(() => {
+    gsap.utils.toArray('.ribbon').forEach((ribbon, index) => {
+      gsap.to(ribbon, {
+        y: -14 - index * 3,
+        rotation: -14 + index * 5,
+        duration: 4.8 + index * 0.7,
+        repeat: -1,
+        yoyo: true,
+        ease: 'sine.inOut',
+      })
+    })
+  }, rootRef.value)
+}
+
+const stopLetterGsap = () => {
+  window.clearTimeout(extractionTimer)
+  extractionTimer = 0
+  window.clearTimeout(letterFxTimer)
+  letterFxTimer = 0
+  letterOpenTimeline?.kill()
+  letterOpenTimeline = null
+  killGsapContext(letterFxContext)
+  letterFxContext = null
+  killGsapContext(signFxContext)
+  signFxContext = null
+  killGsapContext(caretContext)
+  caretContext = null
+}
+
+const stopLidAnimation = () => {
+  lidTimeline?.kill()
+  lidTimeline = null
+}
+
+const resetLetterDisplay = () => {
+  gsap.set('.letter-dialog', { clearProps: 'opacity,transform' })
+  gsap.set('.letter-close', { clearProps: 'opacity,transform' })
+  gsap.set('.letter-paper', { clearProps: 'opacity,transform' })
+}
+
+const animateLetterOpen = async () => {
+  await nextTick()
+  letterOpenTimeline?.kill()
+  letterOpenTimeline = gsap.timeline()
+  letterOpenTimeline
+    .set('.letter-dialog', {
+      opacity: 0,
+      y: 18,
+      scale: 0.94,
+    })
+    .set('.letter-paper', {
+      opacity: 0,
+      y: 34,
+      scale: 0.96,
+    })
+    .set('.letter-close', {
+      opacity: 0,
+      scale: 0.9,
+    })
+    .to('.letter-dialog', {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      duration: 0.72,
+      ease: 'power3.out',
+    }, 0)
+    .to('.letter-paper', {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      duration: 0.64,
+      ease: 'power3.out',
+    }, 0.1)
+    .to('.letter-close', {
+      opacity: 1,
+      scale: 1,
+      duration: 0.2,
+      ease: 'power2.out',
+    }, 0.34)
+}
+
+const startLetterPaperGsap = async () => {
+  if (!isLetterOpen.value) return
+  await nextTick()
+  if (!isLetterOpen.value) return
+
+  killGsapContext(letterFxContext)
+  letterFxContext = gsap.context(() => {
+    gsap.utils.toArray('.paper-fx-heart').forEach((heart, index) => {
+      gsap.fromTo(heart,
+        {
+          opacity: 0,
+          y: 24,
+          x: 0,
+          scale: 0.72,
+          rotation: -12,
+        },
+        {
+          opacity: 0,
+          y: -690,
+          x: index % 2 === 0 ? -18 : 16,
+          scale: 1.1,
+          rotation: index % 2 === 0 ? 22 : -18,
+          duration: 7.2 + index * 0.55,
+          delay: -index * 1.05,
+          repeat: -1,
+          ease: 'none',
+          keyframes: [
+            { opacity: 0, duration: 0 },
+            { opacity: 0.62, duration: 0.12 },
+            { opacity: 0.42, duration: 0.5 },
+            { opacity: 0, duration: 0.38 },
+          ],
+        }
+      )
+    })
+
+    gsap.to('.paper-sparkles-heart', {
+      y: -3,
+      scale: 1.08,
+      opacity: 0.42,
+      rotation: -8,
+      duration: 1.05,
+      repeat: -1,
+      yoyo: true,
+      ease: 'sine.inOut',
+    })
+
+    gsap.to('.paper-sparkles-glow', {
+      scaleX: 1.18,
+      opacity: 0.8,
+      duration: 1.05,
+      repeat: -1,
+      yoyo: true,
+      ease: 'sine.inOut',
+    })
+
+    gsap.utils.toArray('.paper-sparkle').forEach((sparkle, index) => {
+      gsap.fromTo(sparkle,
+        {
+          opacity: 0,
+          x: 0,
+          y: 12,
+          scale: 0.7,
+        },
+        {
+          opacity: 0,
+          x: -12 - index * 3,
+          y: -42 - index * 8,
+          scale: 1.12,
+          duration: 2.8,
+          delay: index * 0.7,
+          repeat: -1,
+          ease: 'power1.out',
+          keyframes: [
+            { opacity: 0, duration: 0 },
+            { opacity: 0.7, duration: 0.18 },
+            { opacity: 0, duration: 0.82 },
+          ],
+        }
+      )
+    })
+
+  }, rootRef.value)
+}
+
+const startSignGsap = async () => {
+  await nextTick()
+  killGsapContext(signFxContext)
+  signFxContext = gsap.context(() => {
+    gsap.to('.sign-heart', {
+      scale: 1.2,
+      duration: 0.22,
+      repeat: -1,
+      yoyo: true,
+      repeatDelay: 0.5,
+      ease: 'sine.inOut',
+      transformOrigin: 'center',
+    })
+
+    gsap.fromTo('.sign-heart-float',
+      {
+        opacity: 0,
+        x: 0,
+        y: 0,
+        scale: 0.72,
+      },
+      {
+        opacity: 0,
+        x: -18,
+        y: -34,
+        scale: 1.08,
+        duration: 2.2,
+        repeat: -1,
+        ease: 'power1.out',
+        keyframes: [
+          { opacity: 0, duration: 0 },
+          { opacity: 0.68, duration: 0.18 },
+          { opacity: 0, duration: 0.82 },
+        ],
+      }
+    )
+  }, rootRef.value)
+}
+
+const startCaretGsap = async () => {
+  await nextTick()
+  killGsapContext(caretContext)
+  caretContext = gsap.context(() => {
+    gsap.to('.caret', {
+      opacity: 0,
+      duration: 0.38,
+      repeat: -1,
+      yoyo: true,
+      ease: 'steps(1)',
+    })
+  }, rootRef.value)
+}
+
+watch(showLetterSign, (visible) => {
+  if (visible) {
+    startSignGsap()
+  } else {
+    killGsapContext(signFxContext)
+    signFxContext = null
+  }
+})
+
+watch(stage, (nextStage) => {
+  if (nextStage === 'typing') {
+    startCaretGsap()
+    return
+  }
+
+  killGsapContext(caretContext)
+  caretContext = null
+})
 
 const updateEnvelopeHotspot = () => {
   if (!envelopeGroup || !camera || !canvasRef.value || !envelopeHotspotRef.value) return
@@ -93,8 +421,27 @@ const updateEnvelopeHotspot = () => {
   const rect = canvasRef.value.getBoundingClientRect()
   const x = rect.left + ((vector.x + 1) / 2) * rect.width
   const y = rect.top + ((-vector.y + 1) / 2) * rect.height
-  const isVisible = stage.value === 'ready' && vector.z < 1
+  const isVisible = canOpenEnvelope.value && envelopeGroup.visible && vector.z < 1
   const hotspot = envelopeHotspotRef.value
+
+  hotspot.style.left = `${x}px`
+  hotspot.style.top = `${y}px`
+  hotspot.style.opacity = isVisible ? '1' : '0'
+  hotspot.style.pointerEvents = isVisible ? 'auto' : 'none'
+}
+
+const updateLidHotspot = () => {
+  if (!lidHotspotAnchor || !camera || !canvasRef.value || !lidHotspotRef.value) return
+
+  const vector = new THREE.Vector3()
+  lidHotspotAnchor.getWorldPosition(vector)
+  vector.project(camera)
+
+  const rect = canvasRef.value.getBoundingClientRect()
+  const x = rect.left + ((vector.x + 1) / 2) * rect.width
+  const y = rect.top + ((-vector.y + 1) / 2) * rect.height
+  const isVisible = canOpenLid.value && vector.z < 1
+  const hotspot = lidHotspotRef.value
 
   hotspot.style.left = `${x}px`
   hotspot.style.top = `${y}px`
@@ -108,20 +455,116 @@ const beginTyping = () => {
   stage.value = 'typing'
 
   typeTimer = window.setInterval(() => {
-    typedLength.value += 1
+    typedLength.value += 2
 
     if (typedLength.value >= letterText.length) {
+      typedLength.value = letterText.length
       window.clearInterval(typeTimer)
       stage.value = 'done'
     }
-  }, 74)
+  }, 22)
 }
 
 const openEnvelope = () => {
   if (!canOpenEnvelope.value) return
 
+  window.clearTimeout(introTimer)
+  window.clearTimeout(extractionTimer)
+  window.clearTimeout(beginTypingTimer)
+  window.clearTimeout(letterFxTimer)
+  window.clearInterval(typeTimer)
+  typedLength.value = 0
   stage.value = 'opening'
-  window.setTimeout(beginTyping, 960)
+  animateLetterOpen()
+  beginTypingTimer = window.setTimeout(beginTyping, 920)
+  letterFxTimer = window.setTimeout(startLetterPaperGsap, 1320)
+}
+
+const closeLetter = () => {
+  stopLetterGsap()
+  window.clearTimeout(beginTypingTimer)
+  window.clearInterval(typeTimer)
+  typedLength.value = 0
+  envelopeDismissed.value = true
+  if (envelopeGroup) {
+    envelopeGroup.visible = false
+  }
+  focusLidView()
+  stage.value = 'lid-ready'
+  resetLetterDisplay()
+}
+
+const openLid = () => {
+  if (!canOpenLid.value || !lidGroup || !camera) return
+
+  stopLidAnimation()
+  lidGroup.visible = true
+  lidGroup.scale.setScalar(1)
+  lidGroup.position.set(0, 0, 0)
+  lidGroup.rotation.set(0, 0, 0)
+  stage.value = 'box-opening'
+  hasDragged.value = true
+  targetRotation = { x: 0, y: 0 }
+  targetZoom = 1.02
+
+  const cameraTarget = {
+    x: camera.position.x,
+    y: camera.position.y,
+    z: camera.position.z,
+    fov: camera.fov,
+    lookX: cameraLookAt.x,
+    lookY: cameraLookAt.y,
+    lookZ: cameraLookAt.z,
+  }
+
+  lidTimeline = gsap.timeline({
+    defaults: { ease: 'power3.inOut' },
+    onUpdate: () => {
+      camera.position.set(cameraTarget.x, cameraTarget.y, cameraTarget.z)
+      cameraLookAt.set(cameraTarget.lookX, cameraTarget.lookY, cameraTarget.lookZ)
+      camera.fov = cameraTarget.fov
+      camera.updateProjectionMatrix()
+    },
+    onComplete: () => {
+      stage.value = 'box-open'
+      lidTimeline = null
+    },
+  })
+
+  lidTimeline
+    .to(lidGroup.position, {
+      y: 0.2,
+      z: -1.08,
+      duration: 0.24,
+      ease: 'power2.out',
+    }, 0)
+    .to(lidGroup.rotation, {
+      x: -1.38,
+      y: 0,
+      z: 0,
+      duration: 0.82,
+    }, 0.12)
+    .to(lidGroup.position, {
+      y: 0.74,
+      z: -1.64,
+      duration: 0.82,
+    }, 0.12)
+    .to(lidGroup.scale, {
+      x: 0.98,
+      y: 0.98,
+      z: 0.98,
+      duration: 0.82,
+    }, 0.12)
+    .to(cameraTarget, {
+      x: openBoxCamera.position.x,
+      y: openBoxCamera.position.y,
+      z: openBoxCamera.position.z,
+      lookX: openBoxCamera.lookAt.x,
+      lookY: openBoxCamera.lookAt.y,
+      lookZ: openBoxCamera.lookAt.z,
+      fov: openBoxCamera.fov,
+      duration: 1.25,
+    }, 0.18)
 }
 
 const drawCherry = (ctx, x, y, scale = 1) => {
@@ -296,17 +739,6 @@ const drawSprinkles = (ctx, count, seed = 1) => {
   ctx.globalAlpha = 1
 }
 
-const drawDotGrid = (ctx) => {
-  ctx.fillStyle = 'rgba(36, 43, 40, 0.5)'
-  for (let y = 116; y < 970; y += 28) {
-    for (let x = 58; x < 982; x += 28) {
-      ctx.beginPath()
-      ctx.arc(x, y, 1.8, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }
-}
-
 const drawHandle = (ctx, x, y, scale = 1) => {
   ctx.save()
   ctx.translate(x, y)
@@ -331,7 +763,6 @@ const drawLidEdge = (ctx, withHandleNotches = false) => {
   ctx.fillRect(0, 0, 1024, 154)
   ctx.fillStyle = 'rgba(218, 207, 178, 0.35)'
   ctx.fillRect(0, 144, 1024, 12)
-  drawSprinkles(ctx, 16, 17)
 
   if (withHandleNotches) {
     ctx.fillStyle = '#a49a84'
@@ -348,35 +779,19 @@ const createLidSideTexture = () => {
   canvas.height = 256
   const ctx = canvas.getContext('2d')
 
-  ctx.fillStyle = '#f7efd8'
+  ctx.fillStyle = storageBoxPalette.paper
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  for (let x = 0; x < canvas.width; x += 26) {
-    ctx.strokeStyle = 'rgba(181, 165, 132, 0.12)'
+  for (let x = 0; x < canvas.width; x += 34) {
+    ctx.strokeStyle = 'rgba(164, 151, 126, 0.035)'
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(x, 0)
-    ctx.lineTo(x + 10, canvas.height)
+    ctx.lineTo(x + 6, canvas.height)
     ctx.stroke()
   }
 
-  ctx.fillStyle = 'rgba(180, 159, 121, 0.26)'
-  ctx.fillRect(0, 228, canvas.width, 12)
-
-  const dots = [
-    ['#d85c73', 78, 82], ['#7fb7d7', 210, 54], ['#e5b943', 356, 92],
-    ['#80b946', 512, 66], ['#e59b45', 684, 92], ['#8d9de5', 842, 56],
-    ['#d85c73', 946, 104],
-  ]
-
-  dots.forEach(([color, x, y]) => {
-    ctx.fillStyle = color
-    ctx.globalAlpha = 0.78
-    ctx.beginPath()
-    ctx.roundRect(x, y, 14, 10, 5)
-    ctx.fill()
-  })
-  ctx.globalAlpha = 1
+  drawConfettiPattern(ctx, 30, 73)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -387,77 +802,74 @@ const createLidSideTexture = () => {
 const createEnvelopeTexture = () => {
   const canvas = document.createElement('canvas')
   canvas.width = 1400
-  canvas.height = 760
+  canvas.height = 700
   const ctx = canvas.getContext('2d')
 
-  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height)
-  bg.addColorStop(0, '#fff7e8')
-  bg.addColorStop(1, '#f4dfbf')
-  ctx.fillStyle = bg
+  ctx.fillStyle = '#f8f2e4'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  ctx.strokeStyle = 'rgba(139, 101, 68, 0.5)'
-  ctx.lineWidth = 4
-  ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36)
+  ctx.fillStyle = 'rgba(170, 155, 120, 0.12)'
+  for (let y = 34; y < canvas.height; y += 36) {
+    for (let x = 28; x < canvas.width; x += 36) {
+      ctx.beginPath()
+      ctx.arc(x, y, 1.7, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+  drawConfettiPattern(ctx, 78, 219)
 
   ctx.save()
-  ctx.shadowColor = 'rgba(113, 79, 49, 0.24)'
-  ctx.shadowBlur = 12
-  ctx.shadowOffsetY = 8
-  ctx.fillStyle = '#fff0d6'
+  ctx.shadowColor = 'rgba(106, 93, 73, 0.18)'
+  ctx.shadowBlur = 18
+  ctx.shadowOffsetY = 10
+  ctx.fillStyle = '#fbf6e9'
   ctx.beginPath()
-  ctx.moveTo(18, 18)
-  ctx.quadraticCurveTo(52, 160, 178, 210)
-  ctx.lineTo(700, 464)
-  ctx.lineTo(1222, 210)
-  ctx.quadraticCurveTo(1348, 160, 1382, 18)
-  ctx.lineTo(18, 18)
+  ctx.moveTo(0, 18)
+  ctx.quadraticCurveTo(44, 184, 184, 224)
+  ctx.lineTo(700, 458)
+  ctx.lineTo(1216, 224)
+  ctx.quadraticCurveTo(1356, 184, 1400, 18)
+  ctx.lineTo(1400, 0)
+  ctx.lineTo(0, 0)
   ctx.closePath()
   ctx.fill()
   ctx.restore()
 
-  ctx.strokeStyle = 'rgba(126, 89, 58, 0.56)'
-  ctx.lineWidth = 5
-  ctx.beginPath()
-  ctx.moveTo(18, 18)
-  ctx.quadraticCurveTo(52, 160, 178, 210)
-  ctx.lineTo(700, 464)
-  ctx.lineTo(1222, 210)
-  ctx.quadraticCurveTo(1348, 160, 1382, 18)
-  ctx.stroke()
-
-  drawSprinkles(ctx, 46, 121)
-
-  ctx.fillStyle = '#75abc0'
-  ctx.font = '700 70px "Comic Sans MS", "Trebuchet MS", sans-serif'
-  ctx.save()
-  ctx.translate(624, 172)
-  ctx.rotate(0.06)
-  ctx.fillText('Lucky Puppy', -210, 0)
-  ctx.restore()
-
-  ctx.strokeStyle = 'rgba(126, 89, 58, 0.26)'
+  ctx.strokeStyle = 'rgba(126, 118, 98, 0.2)'
   ctx.lineWidth = 3
   ctx.beginPath()
-  ctx.moveTo(18, 742)
-  ctx.lineTo(520, 434)
-  ctx.moveTo(1382, 742)
-  ctx.lineTo(880, 434)
+  ctx.moveTo(0, 18)
+  ctx.quadraticCurveTo(44, 184, 184, 224)
+  ctx.lineTo(700, 458)
+  ctx.lineTo(1216, 224)
+  ctx.quadraticCurveTo(1356, 184, 1400, 18)
   ctx.stroke()
 
-  drawPuppy(ctx, 700, 302, 1.1, 'float')
-  drawPuppy(ctx, 290, 560, 0.78, 'headphone')
-  drawPuppy(ctx, 1080, 520, 0.76, 'scarf')
-  drawCherry(ctx, 300, 160, 0.8)
-  drawApple(ctx, 1172, 170, 0.64)
-  drawCoffee(ctx, 164, 642, 0.58)
-  drawCupcake(ctx, 488, 636, 0.52)
-  drawPaw(ctx, 430, 220, 0.62)
-  drawPaw(ctx, 1086, 290, 0.62)
-  drawStar(ctx, 468, 358, 40, 'rgba(229, 181, 64, 0.72)')
-  drawStar(ctx, 360, 450, 56, 'rgba(229, 181, 64, 0.44)')
-  drawBow(ctx, 812, 618, 0.52)
-  drawCherry(ctx, 1244, 620, 0.62)
+  ctx.strokeStyle = 'rgba(126, 118, 98, 0.13)'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(0, 692)
+  ctx.lineTo(542, 420)
+  ctx.moveTo(1400, 692)
+  ctx.lineTo(858, 420)
+  ctx.stroke()
+
+  ctx.globalAlpha = 0.92
+  drawPuppy(ctx, 310, 520, 0.9, 'headphone')
+  drawCherry(ctx, 706, 182, 0.8)
+  drawCupcake(ctx, 1110, 376, 0.58)
+  drawApple(ctx, 1256, 388, 0.58)
+  drawPaw(ctx, 1210, 536, 0.6)
+  drawBow(ctx, 972, 520, 0.56)
+  ctx.globalAlpha = 1
+
+  ctx.fillStyle = '#9aa6dd'
+  ctx.font = '700 74px "Comic Sans MS", "Trebuchet MS", sans-serif'
+  ctx.save()
+  ctx.translate(705, 540)
+  ctx.rotate(0.02)
+  ctx.fillText('Lucky pppy', -185, 0)
+  ctx.restore()
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -735,116 +1147,104 @@ const drawStar = (ctx, x, y, radius, color) => {
   ctx.restore()
 }
 
-const createGiftTexture = (variant = 'front') => {
+const drawConfettiPattern = (ctx, count, seed = 1) => {
+  const colors = ['#df8f9b', '#8db8d5', '#e0c867', '#9dc79d', '#d4ad72', '#b3afe2']
+  let value = seed
+
+  for (let i = 0; i < count; i += 1) {
+    value = (value * 9301 + 49297) % 233280
+    const x = (value / 233280) * ctx.canvas.width
+    value = (value * 9301 + 49297) % 233280
+    const y = (value / 233280) * ctx.canvas.height
+    const color = colors[i % colors.length]
+
+    ctx.fillStyle = color
+    ctx.globalAlpha = 0.54
+    ctx.beginPath()
+    ctx.arc(x, y, 3.2 + (i % 3) * 0.7, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  ctx.globalAlpha = 1
+}
+
+const drawDottedPaper = (ctx) => {
+  ctx.fillStyle = storageBoxPalette.paper
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+
+  ctx.fillStyle = 'rgba(174, 159, 126, 0.11)'
+  for (let y = 34; y < ctx.canvas.height; y += 34) {
+    for (let x = 30; x < ctx.canvas.width; x += 34) {
+      ctx.beginPath()
+      ctx.arc(x, y, 1.45, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+}
+
+const drawPanelBorder = (ctx) => {
+  ctx.strokeStyle = 'rgba(137, 129, 108, 0.14)'
+  ctx.lineWidth = 3
+  ctx.strokeRect(10, 10, ctx.canvas.width - 20, ctx.canvas.height - 20)
+}
+
+const drawStorageBoxTexture = (variant = 'front') => {
   const canvas = document.createElement('canvas')
   canvas.width = 1024
   canvas.height = 1024
   const ctx = canvas.getContext('2d')
 
-  ctx.fillStyle = '#f8f2df'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  for (let x = 10; x < canvas.width; x += 16) {
-    ctx.strokeStyle = 'rgba(188, 170, 134, 0.12)'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x + 8, canvas.height)
-    ctx.stroke()
-  }
+  drawDottedPaper(ctx)
+  drawConfettiPattern(ctx, variant === 'top' ? 130 : 96, variant.length * 31)
 
   if (variant === 'front') {
-    drawDotGrid(ctx)
-    drawLidEdge(ctx)
-    drawCherry(ctx, 92, 192, 0.78)
-    drawPuppy(ctx, 280, 518, 1.32, 'float')
-    drawPuppy(ctx, 790, 260, 0.98, 'scarf')
-    drawPuppy(ctx, 735, 716, 1.18, 'headphone')
-    drawStar(ctx, 102, 378, 82, 'rgba(219, 178, 76, 0.45)')
-    drawStar(ctx, 462, 564, 92, 'rgba(219, 178, 76, 0.45)')
-    drawStar(ctx, 350, 812, 62, 'rgba(219, 178, 76, 0.36)')
-    drawCupcake(ctx, 556, 388, 0.82)
-    drawCoffee(ctx, 458, 865, 0.72)
-    drawApple(ctx, 880, 812, 0.64)
-    drawPaw(ctx, 880, 560, 0.64)
-    drawBow(ctx, 450, 214, 0.7)
-    drawSprinkles(ctx, 22, 42)
+    ctx.globalAlpha = 0.82
+    drawPuppy(ctx, 255, 520, 1.25, 'float')
+    drawPuppy(ctx, 560, 610, 1.08, 'headphone')
+    drawPuppy(ctx, 760, 330, 0.92, 'scarf')
+    ctx.globalAlpha = 0.78
+    drawCherry(ctx, 142, 260, 0.72)
+    drawApple(ctx, 884, 780, 0.62)
+    drawCupcake(ctx, 660, 750, 0.7)
+    drawCoffee(ctx, 440, 830, 0.62)
+    drawPaw(ctx, 878, 534, 0.58)
+    drawBow(ctx, 572, 240, 0.62)
+    drawStar(ctx, 205, 708, 76, 'rgba(224, 194, 85, 0.32)')
+    drawStar(ctx, 588, 462, 54, 'rgba(224, 194, 85, 0.2)')
+    ctx.globalAlpha = 1
   } else if (variant === 'top') {
-    drawSprinkles(ctx, 72, 63)
-    drawPuppy(ctx, 300, 368, 1.02, 'float')
-    drawPuppy(ctx, 308, 650, 0.92, 'headphone')
-    drawPuppy(ctx, 325, 850, 0.86, 'scarf')
-    drawCherry(ctx, 544, 286, 0.72)
-    drawCherry(ctx, 742, 408, 0.56)
-    drawApple(ctx, 762, 570, 0.56)
-    drawCoffee(ctx, 720, 748, 0.58)
-    drawCupcake(ctx, 660, 350, 0.56)
-    drawBow(ctx, 575, 190, 0.62)
-    ctx.fillStyle = '#7baac0'
-    ctx.font = '700 66px "Comic Sans MS", "Trebuchet MS", sans-serif'
+    ctx.globalAlpha = 0.78
+    drawPuppy(ctx, 276, 600, 0.92, 'float')
+    drawPuppy(ctx, 520, 432, 0.78, 'headphone')
+    drawPuppy(ctx, 680, 620, 0.76, 'scarf')
+    drawCherry(ctx, 344, 270, 0.62)
+    drawApple(ctx, 770, 440, 0.52)
+    drawCupcake(ctx, 740, 728, 0.52)
+    drawPaw(ctx, 246, 376, 0.54)
+    drawBow(ctx, 606, 248, 0.52)
+    ctx.globalAlpha = 1
+    ctx.fillStyle = storageBoxPalette.textBlue
+    ctx.font = '700 62px "Comic Sans MS", "Trebuchet MS", sans-serif'
     ctx.save()
-    ctx.translate(630, 510)
-    ctx.rotate(Math.PI / 2)
-    ctx.fillText('Lucky puppy', -165, 0)
+    ctx.translate(512, 520)
+    ctx.rotate(-0.08)
+    ctx.fillText('Lucky puppy', -180, 0)
     ctx.restore()
-    ctx.fillStyle = '#a49a84'
-    ctx.beginPath()
-    ctx.roundRect(120, 0, 116, 18, 6)
-    ctx.roundRect(788, 0, 116, 18, 6)
-    ctx.roundRect(120, 1006, 116, 18, 6)
-    ctx.roundRect(788, 1006, 116, 18, 6)
-    ctx.fill()
+    drawPanelBorder(ctx)
+  } else if (variant === 'left' || variant === 'right') {
+    ctx.globalAlpha = 0.78
+    drawPuppy(ctx, variant === 'left' ? 400 : 600, 470, 1.0, 'scarf')
+    drawPaw(ctx, variant === 'left' ? 760 : 244, 690, 0.62)
+    drawCherry(ctx, variant === 'left' ? 250 : 784, 780, 0.52)
+    drawStar(ctx, variant === 'left' ? 696 : 300, 350, 52, 'rgba(224, 194, 85, 0.2)')
+    ctx.globalAlpha = 1
   } else {
-    if (variant === 'left') {
-      drawDotGrid(ctx)
-      drawLidEdge(ctx)
-      drawHandle(ctx, 510, 190, 0.92)
-      drawPuppy(ctx, 510, 650, 1.34, 'headphone')
-      drawCupcake(ctx, 160, 478, 0.72)
-      drawCherry(ctx, 756, 388, 0.78)
-      drawCoffee(ctx, 162, 824, 0.66)
-      drawApple(ctx, 806, 820, 0.58)
-      drawPaw(ctx, 192, 370, 0.72)
-      drawStar(ctx, 158, 550, 86, 'rgba(219, 178, 76, 0.4)')
-      drawStar(ctx, 828, 260, 62, 'rgba(219, 178, 76, 0.34)')
-      ctx.fillStyle = '#7baac0'
-      ctx.font = '700 74px "Comic Sans MS", "Trebuchet MS", sans-serif'
-      ctx.fillText('Lucky puppy', 262, 330)
-    } else if (variant === 'right') {
-      drawDotGrid(ctx)
-      drawLidEdge(ctx)
-      drawHandle(ctx, 510, 180, 0.9)
-      drawPuppy(ctx, 512, 662, 1.36, 'headphone')
-      drawCupcake(ctx, 190, 480, 0.7)
-      drawCherry(ctx, 770, 374, 0.72)
-      drawCoffee(ctx, 190, 830, 0.64)
-      drawApple(ctx, 806, 804, 0.58)
-      drawBow(ctx, 740, 314, 0.68)
-      drawStar(ctx, 160, 548, 78, 'rgba(219, 178, 76, 0.35)')
-      ctx.fillStyle = '#7baac0'
-      ctx.font = '700 74px "Comic Sans MS", "Trebuchet MS", sans-serif'
-      ctx.fillText('Lucky puppy', 270, 332)
-    } else {
-      drawDotGrid(ctx)
-      drawLidEdge(ctx)
-      drawPuppy(ctx, 292, 498, 1.12, 'float')
-      drawPuppy(ctx, 720, 630, 1.08, 'headphone')
-      drawPuppy(ctx, 730, 292, 0.88, 'scarf')
-      drawCherry(ctx, 744, 246, 0.72)
-      drawCherry(ctx, 190, 780, 0.64)
-      drawApple(ctx, 860, 806, 0.58)
-      drawCoffee(ctx, 480, 804, 0.64)
-      drawCupcake(ctx, 190, 310, 0.62)
-      drawBow(ctx, 510, 244, 0.64)
-      drawPaw(ctx, 860, 482, 0.58)
-      drawStar(ctx, 190, 610, 66, 'rgba(219, 178, 76, 0.38)')
-      drawStar(ctx, 560, 500, 78, 'rgba(219, 178, 76, 0.42)')
-      drawStar(ctx, 818, 648, 42, 'rgba(219, 178, 76, 0.32)')
-      ctx.fillStyle = '#7baac0'
-      ctx.font = '700 54px "Comic Sans MS", "Trebuchet MS", sans-serif'
-      ctx.fillText('Lucky puppy', 302, 352)
-      drawSprinkles(ctx, 22, 99)
-    }
+    ctx.globalAlpha = 0.76
+    drawPuppy(ctx, 330, 520, 0.92, 'float')
+    drawPuppy(ctx, 710, 430, 0.86, 'headphone')
+    drawCherry(ctx, 206, 328, 0.56)
+    drawStar(ctx, 532, 690, 54, 'rgba(224, 194, 85, 0.18)')
+    ctx.globalAlpha = 1
   }
 
   const texture = new THREE.CanvasTexture(canvas)
@@ -853,22 +1253,64 @@ const createGiftTexture = (variant = 'front') => {
   return texture
 }
 
+const createGiftTexture = drawStorageBoxTexture
+
 const createGiftMaterials = () => {
-  return [
-    new THREE.MeshStandardMaterial({ map: createGiftTexture('right'), roughness: 0.84 }),
-    new THREE.MeshStandardMaterial({ map: createGiftTexture('left'), roughness: 0.84 }),
-    new THREE.MeshStandardMaterial({ map: createGiftTexture('top'), roughness: 0.8 }),
-    new THREE.MeshStandardMaterial({ color: '#f2dfbf', roughness: 0.9 }),
-    new THREE.MeshStandardMaterial({ map: createGiftTexture('front'), roughness: 0.82 }),
-    new THREE.MeshStandardMaterial({ map: createGiftTexture('back'), roughness: 0.82 }),
+  const makeOuterMaterial = (variant, options = {}) => new THREE.MeshStandardMaterial({
+    map: createGiftTexture(variant),
+    roughness: 0.92,
+    color: options.color || '#ffffff',
+    emissive: options.emissive || '#000000',
+    emissiveIntensity: options.emissiveIntensity ?? 0,
+  })
+
+  const materials = [
+    makeOuterMaterial('right', { color: '#ffffff' }),
+    makeOuterMaterial('left', { color: '#ffffff' }),
+    new THREE.MeshStandardMaterial({ map: createGiftTexture('top'), roughness: 0.9, color: '#ffffff' }),
+    new THREE.MeshStandardMaterial({ color: storageBoxPalette.paperShadow, roughness: 0.92 }),
+    makeOuterMaterial('front', { color: '#ffffff' }),
+    makeOuterMaterial('back', { color: '#ffffff' }),
   ]
+  materials.forEach((material) => {
+    material.polygonOffset = true
+    material.polygonOffsetFactor = -1
+    material.polygonOffsetUnits = -1
+  })
+  return materials
 }
+
+const createOpenTopBoxMaterials = () => {
+  const materials = createGiftMaterials()
+  materials[2] = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    colorWrite: false,
+  })
+  return materials
+}
+
+const createHiddenMaterial = () => new THREE.MeshBasicMaterial({
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  colorWrite: false,
+})
+
+const createSoftEdgeMaterial = (color = '#e9dabd', opacity = 0.5) => new THREE.MeshStandardMaterial({
+  color,
+  roughness: 0.94,
+  transparent: true,
+  opacity,
+  depthWrite: false,
+})
 
 const createLidMaterials = () => {
   const sideMaterial = new THREE.MeshStandardMaterial({
     map: createLidSideTexture(),
     roughness: 0.84,
-    emissive: '#f7efd8',
+    emissive: storageBoxPalette.paper,
     emissiveIntensity: 0.18,
   })
   return [
@@ -881,85 +1323,437 @@ const createLidMaterials = () => {
   ]
 }
 
-const createThinPanel = (width, height, material) => {
-  const mesh = new THREE.Mesh(new RoundedBoxGeometry(width, 0.035, height, 4, 0.025), material)
-  mesh.castShadow = true
-  mesh.receiveShadow = true
-  return mesh
-}
-
 const createLidAssembly = () => {
   const group = new THREE.Group()
-  const topMaterial = new THREE.MeshStandardMaterial({ map: createGiftTexture('top'), roughness: 0.8 })
+  const {
+    width,
+    depth,
+    bodyHeight,
+    lidHeight,
+    lidOverhang,
+    lidTopThickness,
+    wallThickness,
+  } = storageBox
+  const lidWidth = width + lidOverhang * 2
+  const lidDepth = depth + lidOverhang * 2
+  const topY = bodyHeight / 2 + lidTopThickness / 2 + 0.012
+  const skirtY = topY - lidTopThickness / 2 - lidHeight / 2
+
+  group.position.set(0, 0, 0)
+  const topMaterial = new THREE.MeshStandardMaterial({
+    map: createGiftTexture('top'),
+    roughness: 0.9,
+    color: '#ffffff',
+  })
   const sideMaterial = new THREE.MeshStandardMaterial({
     map: createLidSideTexture(),
-    roughness: 0.86,
-    emissive: '#f7efd8',
-    emissiveIntensity: 0.24,
+    roughness: 0.9,
+    color: '#f8f5ee',
   })
-  const creaseMaterial = new THREE.MeshStandardMaterial({ color: '#c7b48f', roughness: 0.9 })
-  const notchMaterial = new THREE.MeshStandardMaterial({ color: '#8f8879', roughness: 0.92 })
-
-  const topPanel = createThinPanel(3.1, 2.3, topMaterial)
-  topPanel.position.y = 1.205
+  const topPanel = new THREE.Mesh(
+    new THREE.BoxGeometry(lidWidth, lidTopThickness, lidDepth),
+    topMaterial
+  )
+  topPanel.position.set(0, topY, 0)
+  topPanel.castShadow = true
+  topPanel.receiveShadow = true
   group.add(topPanel)
 
-  const frontFlap = new THREE.Mesh(new RoundedBoxGeometry(3.1, 0.24, 0.034, 4, 0.014), sideMaterial)
-  frontFlap.position.set(0, 1.075, 1.162)
-  frontFlap.castShadow = true
+  const frontFlap = new THREE.Mesh(new THREE.BoxGeometry(lidWidth, lidHeight, wallThickness), sideMaterial)
+  frontFlap.position.set(0, skirtY, lidDepth / 2 - wallThickness / 2)
+  frontFlap.castShadow = false
   frontFlap.receiveShadow = true
   group.add(frontFlap)
 
   const backFlap = frontFlap.clone()
-  backFlap.position.z = -1.162
+  backFlap.position.z = -lidDepth / 2 + wallThickness / 2
   group.add(backFlap)
 
-  const leftFlap = new THREE.Mesh(new RoundedBoxGeometry(0.034, 0.24, 2.3, 4, 0.014), sideMaterial.clone())
-  leftFlap.position.set(-1.562, 1.075, 0)
-  leftFlap.castShadow = true
+  const leftFlap = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, lidHeight, lidDepth), sideMaterial.clone())
+  leftFlap.position.set(-lidWidth / 2 + wallThickness / 2, skirtY, 0)
+  leftFlap.castShadow = false
   leftFlap.receiveShadow = true
   group.add(leftFlap)
 
   const rightFlap = leftFlap.clone()
-  rightFlap.position.x = 1.562
+  rightFlap.position.x = lidWidth / 2 - wallThickness / 2
   group.add(rightFlap)
 
-  const frontCrease = new THREE.Mesh(new RoundedBoxGeometry(3.02, 0.018, 0.02, 3, 0.005), creaseMaterial)
-  frontCrease.position.set(0, 1.205, 1.18)
-  group.add(frontCrease)
-  const backCrease = frontCrease.clone()
-  backCrease.position.z = -1.18
-  group.add(backCrease)
+  lidHotspotAnchor = new THREE.Object3D()
+  lidHotspotAnchor.position.set(0, topY + 0.08, 0)
+  group.add(lidHotspotAnchor)
 
-  const leftCrease = new THREE.Mesh(new RoundedBoxGeometry(0.02, 0.018, 2.22, 3, 0.005), creaseMaterial)
-  leftCrease.position.set(-1.58, 1.205, 0)
-  group.add(leftCrease)
-  const rightCrease = leftCrease.clone()
-  rightCrease.position.x = 1.58
-  group.add(rightCrease)
+  return group
+}
 
-  ;[-0.88, 0.88].forEach((x) => {
-    const notch = new THREE.Mesh(new RoundedBoxGeometry(0.28, 0.018, 0.046, 3, 0.008), notchMaterial)
-    notch.position.set(x, 1.21, 1.174)
-    group.add(notch)
+const createOpenBoxShell = () => {
+  const group = new THREE.Group()
+  const { width, depth, bodyHeight, wallThickness } = storageBox
+  const innerInset = 0.012
+  const rimHeight = wallThickness * 1.2
+  const rimWidth = wallThickness * 1.75
+  const materials = createOpenTopBoxMaterials()
+  materials[0] = createHiddenMaterial()
+  materials[1] = createHiddenMaterial()
+  const innerMaterial = new THREE.MeshStandardMaterial({
+    color: storageBoxPalette.inner,
+    roughness: 0.9,
+    side: THREE.DoubleSide,
   })
+
+  const addPanel = (geometry, material, position, rotation = {}) => {
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(position.x, position.y, position.z)
+    mesh.rotation.set(rotation.x || 0, rotation.y || 0, rotation.z || 0)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    group.add(mesh)
+    return mesh
+  }
+
+  const createRoundedRectPath = (shapeWidth, shapeHeight, radius, offsetX = 0, offsetY = 0) => {
+    const x = -shapeWidth / 2 + offsetX
+    const y = -shapeHeight / 2 + offsetY
+    const path = new THREE.Path()
+    path.moveTo(x + radius, y)
+    path.lineTo(x + shapeWidth - radius, y)
+    path.quadraticCurveTo(x + shapeWidth, y, x + shapeWidth, y + radius)
+    path.lineTo(x + shapeWidth, y + shapeHeight - radius)
+    path.quadraticCurveTo(x + shapeWidth, y + shapeHeight, x + shapeWidth - radius, y + shapeHeight)
+    path.lineTo(x + radius, y + shapeHeight)
+    path.quadraticCurveTo(x, y + shapeHeight, x, y + shapeHeight - radius)
+    path.lineTo(x, y + radius)
+    path.quadraticCurveTo(x, y, x + radius, y)
+    return path
+  }
+
+  const createRoundedRectShape = (shapeWidth, shapeHeight, radius) => {
+    const shape = new THREE.Shape()
+    shape.curves = createRoundedRectPath(shapeWidth, shapeHeight, radius).curves
+    shape.currentPoint.copy(createRoundedRectPath(shapeWidth, shapeHeight, radius).currentPoint)
+    return shape
+  }
+
+  const createSideShapeWithHandle = (panelWidth, panelHeight, handleCenterY) => {
+    const shape = new THREE.Shape()
+    shape.moveTo(-panelWidth / 2, -panelHeight / 2)
+    shape.lineTo(panelWidth / 2, -panelHeight / 2)
+    shape.lineTo(panelWidth / 2, panelHeight / 2)
+    shape.lineTo(-panelWidth / 2, panelHeight / 2)
+    shape.lineTo(-panelWidth / 2, -panelHeight / 2)
+
+    const hole = createRoundedRectPath(0.72, 0.34, 0.16, 0, handleCenterY)
+    shape.holes.push(hole)
+    return shape
+  }
+
+  const normalizeShapeGeometryUvs = (geometry, planeWidth, planeHeight) => {
+    const positions = geometry.attributes.position
+    const uvs = geometry.attributes.uv
+    for (let i = 0; i < positions.count; i += 1) {
+      const x = positions.getX(i)
+      const y = positions.getY(i)
+      uvs.setXY(i, (x + planeWidth / 2) / planeWidth, 1 - (y + planeHeight / 2) / planeHeight)
+    }
+    uvs.needsUpdate = true
+  }
+
+  const createHandleRingGeometry = () => {
+    const ringShape = createRoundedRectShape(0.86, 0.46, 0.21)
+    ringShape.holes.push(createRoundedRectPath(0.7, 0.32, 0.15))
+    return new THREE.ShapeGeometry(ringShape, 24)
+  }
+
+  const createSidePanel = (side = 'left') => {
+    const sign = side === 'left' ? -1 : 1
+    const material = new THREE.MeshStandardMaterial({
+      map: createGiftTexture(side),
+      roughness: 0.92,
+      color: '#ffffff',
+      side: THREE.DoubleSide,
+    })
+    const geometry = new THREE.ShapeGeometry(createSideShapeWithHandle(depth, bodyHeight, bodyHeight * 0.23), 48)
+    normalizeShapeGeometryUvs(geometry, depth, bodyHeight)
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(sign * width / 2, 0, 0)
+    mesh.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    return mesh
+  }
+
+  const createInnerSidePanel = (side = 'left') => {
+    const sign = side === 'left' ? -1 : 1
+    const panelHeight = bodyHeight - rimHeight
+    const geometry = new THREE.ShapeGeometry(
+      createSideShapeWithHandle(depth - innerInset * 2, panelHeight, bodyHeight * 0.23 + rimHeight / 2),
+      48
+    )
+    const mesh = new THREE.Mesh(geometry, innerMaterial)
+    mesh.position.set(sign * (width / 2 - innerInset), -rimHeight / 2, 0)
+    mesh.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2
+    mesh.receiveShadow = true
+    return mesh
+  }
+
+  const createHandleTunnel = (side = 'left') => {
+    const sign = side === 'left' ? -1 : 1
+    const handleGroup = new THREE.Group()
+    const handleCenterY = bodyHeight * 0.23
+    const lipMaterial = new THREE.MeshBasicMaterial({
+      color: '#e3dccf',
+      side: THREE.DoubleSide,
+    })
+    const shadowMaterial = new THREE.MeshBasicMaterial({
+      color: '#bdb7aa',
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+
+    const outerLip = new THREE.Mesh(
+      createHandleRingGeometry(),
+      lipMaterial
+    )
+    const innerShadow = new THREE.Mesh(
+      createHandleRingGeometry(),
+      shadowMaterial
+    )
+
+    outerLip.position.z = -0.006
+    innerShadow.position.z = -0.011
+    outerLip.renderOrder = 4
+    innerShadow.renderOrder = 5
+    handleGroup.add(outerLip)
+    handleGroup.add(innerShadow)
+    handleGroup.position.set(sign * (width / 2 + 0.003), handleCenterY, 0)
+    handleGroup.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2
+    return handleGroup
+  }
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(width, bodyHeight, depth), materials)
+  body.position.y = 0
+  body.castShadow = true
+  body.receiveShadow = true
+  group.add(body)
+  frontPanel = body
+  group.add(createSidePanel('left'))
+  group.add(createSidePanel('right'))
+
+  const innerBack = addPanel(
+    new THREE.PlaneGeometry(width - innerInset * 2, bodyHeight - rimHeight),
+    innerMaterial,
+    { x: 0, y: -rimHeight / 2, z: -depth / 2 + innerInset },
+    { y: Math.PI }
+  )
+  innerBack.receiveShadow = true
+
+  const innerFront = addPanel(
+    new THREE.PlaneGeometry(width - innerInset * 2, bodyHeight - rimHeight),
+    innerMaterial,
+    { x: 0, y: -rimHeight / 2, z: depth / 2 - innerInset }
+  )
+  innerFront.receiveShadow = true
+
+  const innerLeft = createInnerSidePanel('left')
+  group.add(innerLeft)
+  innerLeft.receiveShadow = true
+
+  const innerRight = createInnerSidePanel('right')
+  group.add(innerRight)
+  innerRight.receiveShadow = true
+
+  const rimMaterial = new THREE.MeshStandardMaterial({
+    color: storageBoxPalette.paperShadow,
+    roughness: 0.88,
+  })
+  addPanel(
+    new THREE.BoxGeometry(width, rimHeight, rimWidth),
+    rimMaterial,
+    { x: 0, y: bodyHeight / 2 - rimHeight / 2 + 0.006, z: depth / 2 - rimWidth / 2 }
+  )
+  addPanel(
+    new THREE.BoxGeometry(width, rimHeight, rimWidth),
+    rimMaterial,
+    { x: 0, y: bodyHeight / 2 - rimHeight / 2 + 0.006, z: -depth / 2 + rimWidth / 2 }
+  )
+  addPanel(
+    new THREE.BoxGeometry(rimWidth, rimHeight, depth),
+    rimMaterial,
+    { x: -width / 2 + rimWidth / 2, y: bodyHeight / 2 - rimHeight / 2 + 0.006, z: 0 }
+  )
+  addPanel(
+    new THREE.BoxGeometry(rimWidth, rimHeight, depth),
+    rimMaterial,
+    { x: width / 2 - rimWidth / 2, y: bodyHeight / 2 - rimHeight / 2 + 0.006, z: 0 }
+  )
+
+  const innerFloor = new THREE.Mesh(
+    new THREE.PlaneGeometry(width - innerInset * 2, depth - innerInset * 2),
+    new THREE.MeshStandardMaterial({
+      color: storageBoxPalette.innerShadow,
+      roughness: 0.86,
+      side: THREE.DoubleSide,
+    })
+  )
+  innerFloor.rotation.x = -Math.PI / 2
+  innerFloor.position.y = -bodyHeight / 2 + wallThickness + 0.006
+  innerFloor.receiveShadow = true
+  group.add(innerFloor)
+
+  group.add(createHandleTunnel('left'))
+  group.add(createHandleTunnel('right'))
+
+  return group
+}
+
+const createWrappedGift = ({
+  x,
+  y,
+  z,
+  width,
+  height,
+  depth,
+  color,
+  ribbonColor,
+  rotation = 0,
+}) => {
+  const group = new THREE.Group()
+  group.position.set(x, y, z)
+  group.rotation.y = rotation
+
+  const contactShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(Math.max(width, depth) * 0.44, 28),
+    new THREE.MeshBasicMaterial({
+      color: '#57534c',
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  )
+  contactShadow.rotation.x = -Math.PI / 2
+  contactShadow.position.y = -height / 2 - 0.006
+  contactShadow.scale.set(1.24, 0.74, 1)
+  contactShadow.renderOrder = 1
+  group.add(contactShadow)
+
+  const box = new THREE.Mesh(
+    new RoundedBoxGeometry(width, height, depth, 4, 0.035),
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.76,
+      emissive: color,
+      emissiveIntensity: 0.04,
+    })
+  )
+  box.castShadow = true
+  box.receiveShadow = true
+  group.add(box)
+
+  const verticalRibbon = new THREE.Mesh(
+    new RoundedBoxGeometry(width + 0.014, height + 0.018, Math.min(depth * 0.18, 0.12), 2, 0.012),
+    new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.7 })
+  )
+  verticalRibbon.castShadow = true
+  verticalRibbon.receiveShadow = true
+  group.add(verticalRibbon)
+
+  const horizontalRibbon = new THREE.Mesh(
+    new RoundedBoxGeometry(Math.min(width * 0.18, 0.12), height + 0.02, depth + 0.014, 2, 0.012),
+    new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.7 })
+  )
+  horizontalRibbon.castShadow = true
+  horizontalRibbon.receiveShadow = true
+  group.add(horizontalRibbon)
+
+  const bow = new THREE.Mesh(
+    new THREE.TorusGeometry(Math.min(width, depth) * 0.16, 0.018, 8, 24),
+    new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.68 })
+  )
+  bow.position.y = height * 0.52 + 0.025
+  bow.rotation.x = Math.PI / 2
+  bow.scale.x = 1.4
+  bow.castShadow = true
+  group.add(bow)
+
+  return group
+}
+
+const createBoxContents = () => {
+  const group = new THREE.Group()
+  const floorY = -storageBox.bodyHeight / 2 + storageBox.wallThickness + 0.006
+  const giftRestY = (height, sink = 0.018) => floorY + height / 2 - sink
+  const createInnerEnvelope = () => {
+    const envelope = new THREE.Group()
+    const shadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.14, 0.56),
+      new THREE.MeshBasicMaterial({
+        color: '#5a554d',
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    )
+    shadow.rotation.x = -Math.PI / 2
+    shadow.position.y = floorY + 0.009
+    shadow.position.set(0.02, floorY + 0.009, 0.012)
+
+    const body = new THREE.Mesh(
+      new RoundedBoxGeometry(1.16, 0.018, 0.58, 4, 0.012),
+      new THREE.MeshStandardMaterial({
+        map: createEnvelopeTexture(),
+        roughness: 0.88,
+        color: '#ffffff',
+      })
+    )
+    body.position.y = floorY + 0.03
+    body.castShadow = true
+    body.receiveShadow = true
+
+    envelope.add(shadow)
+    envelope.add(body)
+    envelope.position.set(0.06, 0, 0.07)
+    envelope.rotation.y = -0.12
+    envelope.rotation.z = 0.02
+    return envelope
+  }
+
+  const gifts = [
+    { x: -0.78, z: -0.48, width: 0.58, height: 0.52, depth: 0.56, color: '#e99aa4', ribbonColor: '#fff4cf', rotation: 0.42, sink: 0.024 },
+    { x: -0.06, z: -0.5, width: 0.72, height: 0.46, depth: 0.5, color: '#93c9d5', ribbonColor: '#f6d27b', rotation: -0.06, sink: 0.02 },
+    { x: 0.68, z: -0.34, width: 0.48, height: 0.48, depth: 0.48, color: '#b7d9a1', ribbonColor: '#f5a0aa', rotation: 0.58, sink: 0.022 },
+    { x: -0.46, z: 0.22, width: 0.5, height: 0.38, depth: 0.42, color: '#f3c86e', ribbonColor: '#87bccc', rotation: -0.7, sink: 0.018 },
+    { x: 0.36, z: 0.26, width: 0.52, height: 0.36, depth: 0.46, color: '#d9b3df', ribbonColor: '#fff2c9', rotation: 0.3, sink: 0.018 },
+  ]
+
+  gifts.forEach((gift) => {
+    group.add(createWrappedGift({
+      ...gift,
+      y: giftRestY(gift.height, gift.sink),
+    }))
+  })
+
+  group.add(createInnerEnvelope())
 
   return group
 }
 
 const createEnvelope = () => {
   const group = new THREE.Group()
-  group.position.set(0, 1.62, 0.42)
-  group.rotation.x = -0.72
+  group.position.set(0, envelopeBaseY, envelopeBaseZ)
+  group.rotation.x = envelopeBaseRotationX
   group.rotation.z = -0.035
-  group.scale.setScalar(0.86)
+  group.scale.setScalar(envelopeBaseScale)
 
   const body = new THREE.Mesh(
-    new RoundedBoxGeometry(1.78, 0.014, 0.96, 5, 0.035),
+    new RoundedBoxGeometry(2.2, 0.012, 1.1, 5, 0.018),
     new THREE.MeshStandardMaterial({
       map: createEnvelopeTexture(),
-      roughness: 0.82,
-      color: '#fff2d7',
+      roughness: 0.86,
+      color: '#ffffff',
     })
   )
   body.rotation.x = Math.PI / 2
@@ -968,28 +1762,28 @@ const createEnvelope = () => {
   body.receiveShadow = true
 
   const rim = new THREE.Mesh(
-    new RoundedBoxGeometry(1.86, 0.01, 1.02, 5, 0.04),
+    new RoundedBoxGeometry(2.24, 0.007, 1.13, 5, 0.018),
     new THREE.MeshStandardMaterial({
-      color: '#d4a46e',
+      color: '#d6c7a9',
       roughness: 0.9,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.08,
     })
   )
   rim.rotation.x = Math.PI / 2
-  rim.position.z = 0.012
+  rim.position.z = 0.01
 
   const shadow = new THREE.Mesh(
-    new RoundedBoxGeometry(1.86, 0.008, 1.0, 5, 0.04),
+    new RoundedBoxGeometry(2.22, 0.006, 1.1, 5, 0.018),
     new THREE.MeshBasicMaterial({
-      color: '#8b6a48',
+      color: '#8f7c62',
       transparent: true,
-      opacity: 0.13,
+      opacity: 0.045,
       depthWrite: false,
     })
   )
   shadow.rotation.x = Math.PI / 2
-  shadow.position.set(0.035, -0.006, -0.026)
+  shadow.position.set(0.025, -0.006, -0.024)
 
   group.add(shadow)
   group.add(rim)
@@ -1015,36 +1809,34 @@ const createScene = async () => {
   scene = new THREE.Scene()
   scene.fog = new THREE.Fog('#f4f0e5', 8.5, 15)
 
-  camera = new THREE.PerspectiveCamera(introCameraPath[0].fov, 1, 0.1, 30)
+  camera = new THREE.PerspectiveCamera(introCameraStart.fov, 1, 0.1, 30)
   applyIntroCamera(0)
 
-  const ambient = new THREE.HemisphereLight('#fff8ef', '#d3e2dc', 1.42)
+  const ambient = new THREE.HemisphereLight('#ffffff', '#d8ddd8', 1.34)
   scene.add(ambient)
 
-  const keyLight = new THREE.DirectionalLight('#fff2df', 1.92)
+  const keyLight = new THREE.DirectionalLight('#ffffff', 1.58)
   keyLight.position.set(3.2, 4.8, 3.8)
   keyLight.castShadow = true
   keyLight.shadow.mapSize.set(1024, 1024)
   scene.add(keyLight)
 
-  const fillLight = new THREE.PointLight('#b8d7df', 0.68, 8)
+  const fillLight = new THREE.PointLight('#c7dbe4', 0.54, 8)
   fillLight.position.set(-2.8, 1.8, 2.6)
   scene.add(fillLight)
 
   boxGroup = new THREE.Group()
   boxGroup.position.set(0, 0.02, 0)
-  boxGroup.scale.setScalar(0.74)
+  boxGroup.scale.setScalar(boxBaseScale)
   scene.add(boxGroup)
 
-  const box = new THREE.Mesh(
-    new RoundedBoxGeometry(3.0, 2.0, 2.2, 6, 0.045),
-    createGiftMaterials()
-  )
-  box.castShadow = true
-  box.receiveShadow = true
-  boxGroup.add(box)
+  boxGroup.add(createOpenBoxShell())
 
-  boxGroup.add(createLidAssembly())
+  boxContentsGroup = createBoxContents()
+  boxGroup.add(boxContentsGroup)
+
+  lidGroup = createLidAssembly()
+  boxGroup.add(lidGroup)
 
   envelopeGroup = createEnvelope()
   boxGroup.add(envelopeGroup)
@@ -1075,47 +1867,90 @@ const updateSize = () => {
 const animate = () => {
   animationFrame = window.requestAnimationFrame(animate)
 
-  const elapsed = performance.now() * 0.001
+  const now = performance.now()
+  const elapsed = now * 0.001
+  const isExtracting = isExtractingEnvelope.value
+  const shouldRenderScene = !isLetterOpen.value
 
-  if (boxGroup) {
-    if (stage.value === 'intro') {
-      const progress = Math.min(1, (performance.now() - introStart) / introDuration)
+  if (boxGroup && shouldRenderScene) {
+    if (stage.value === 'intro' || isExtracting) {
+      const introProgress = Math.min(1, (now - introStart) / introDuration)
+      const extractionProgress = isExtracting
+        ? easeOutCubic(clamp((now - extractionStart) / extractionDuration, 0, 1))
+        : 0
+      const progress = isExtracting ? Math.max(introProgress, extractionProgress) : introProgress
       applyIntroCamera(progress)
     }
 
     camera.lookAt(cameraLookAt)
 
-    if (!isDragging && !hasDragged.value && stage.value === 'ready') {
-      targetRotation.y += 0.0028
-    }
-
     currentRotation.x += (targetRotation.x - currentRotation.x) * 0.09
     currentRotation.y += (targetRotation.y - currentRotation.y) * 0.09
+    currentZoom += (targetZoom - currentZoom) * 0.12
     boxGroup.rotation.x = currentRotation.x
     boxGroup.rotation.y = currentRotation.y
+    boxGroup.scale.setScalar(boxBaseScale * currentZoom)
   }
 
-  if (envelopeGroup) {
-    const isVisible = stage.value !== 'intro'
-    envelopeGroup.visible = isVisible
-    envelopeGroup.position.y = 1.58 + Math.sin(elapsed * 2.2) * 0.055
-    envelopeGroup.rotation.z = -0.06 + Math.sin(elapsed * 1.7) * 0.025
+  if (envelopeGroup && shouldRenderScene) {
+    envelopeGroup.visible = !envelopeDismissed.value
+    if (envelopeGroup.visible) {
+      envelopeGroup.position.y =
+        envelopeBaseY + Math.sin(elapsed * 2.2) * envelopeFloatAmplitude
+      envelopeGroup.position.z = envelopeBaseZ
+      envelopeGroup.rotation.x = envelopeBaseRotationX
+      envelopeGroup.rotation.z =
+        -0.06 + Math.sin(elapsed * 1.7) * 0.018
+      envelopeGroup.scale.setScalar(envelopeBaseScale)
+    }
   }
 
   updateEnvelopeHotspot()
+  updateLidHotspot()
+  if (!shouldRenderScene) return
+
   renderer?.render(scene, camera)
 }
 
 const onPointerDown = (event) => {
-  if (isLetterOpen.value) return
+  if (isLetterOpen.value || isBoxOpening.value) return
+
+  activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+  setCanvasPointerCapture(event.pointerId)
+
+  if (activePointers.size >= 2) {
+    const [first, second] = [...activePointers.values()]
+    isDragging = false
+    isPinching = true
+    pinchStartDistance = Math.hypot(second.x - first.x, second.y - first.y)
+    pinchStartZoom = targetZoom
+    return
+  }
+
   isDragging = true
   hasDragged.value = true
   previousPointer = { x: event.clientX, y: event.clientY }
-  canvasRef.value?.setPointerCapture?.(event.pointerId)
 }
 
 const onPointerMove = (event) => {
-  if (!isDragging || isLetterOpen.value) return
+  if (isLetterOpen.value || isBoxOpening.value) return
+
+  if (activePointers.has(event.pointerId)) {
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+  }
+
+  if (isPinching && activePointers.size >= 2) {
+    const [first, second] = [...activePointers.values()]
+    const nextDistance = Math.hypot(second.x - first.x, second.y - first.y)
+
+    if (pinchStartDistance > 0) {
+      targetZoom = clamp(pinchStartZoom * (nextDistance / pinchStartDistance), boxMinZoom, boxMaxZoom)
+    }
+
+    return
+  }
+
+  if (!isDragging) return
 
   const deltaX = event.clientX - previousPointer.x
   const deltaY = event.clientY - previousPointer.y
@@ -1127,12 +1962,27 @@ const onPointerMove = (event) => {
 }
 
 const onPointerUp = (event) => {
+  activePointers.delete(event.pointerId)
   isDragging = false
-  canvasRef.value?.releasePointerCapture?.(event.pointerId)
+
+  if (activePointers.size < 2) {
+    isPinching = false
+    pinchStartDistance = 0
+  }
+
+  releaseCanvasPointerCapture(event.pointerId)
+}
+
+const onWheel = (event) => {
+  if (isLetterOpen.value || isBoxOpening.value) return
+
+  targetZoom = clamp(targetZoom - event.deltaY * 0.0014, boxMinZoom, boxMaxZoom)
 }
 
 onMounted(async () => {
   await createScene()
+  await nextTick()
+  startAmbientGsap()
 
   introTimer = window.setTimeout(() => {
     stage.value = 'ready'
@@ -1144,6 +1994,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopLetterGsap()
+  stopLidAnimation()
+  killGsapContext(ambientContext)
+  window.clearTimeout(beginTypingTimer)
   window.clearTimeout(introTimer)
   window.clearInterval(typeTimer)
   window.cancelAnimationFrame(animationFrame)
@@ -1154,18 +2008,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="start-scene" :class="[`is-${stage}`, { 'letter-open': isLetterOpen }]">
+  <main ref="rootRef" class="start-scene" :class="[`is-${stage}`, { 'letter-open': isLetterOpen }]">
     <div class="ambient-layer" aria-hidden="true">
-      <span v-for="item in 18" :key="item" class="sparkle" :style="{ '--i': item }"></span>
       <span class="ribbon ribbon-a"></span>
       <span class="ribbon ribbon-b"></span>
       <span class="ribbon ribbon-c"></span>
     </div>
-
-    <section class="copy-layer" aria-label="开场文字">
-      <p>For you</p>
-      <h1>有一封信，放在今天的礼物上</h1>
-    </section>
 
     <section class="three-stage" aria-label="3D 礼物箱">
       <canvas
@@ -1176,6 +2024,7 @@ onBeforeUnmount(() => {
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
         @pointercancel="onPointerUp"
+        @wheel.prevent="onWheel"
       ></canvas>
 
       <button
@@ -1188,23 +2037,59 @@ onBeforeUnmount(() => {
         @click="openEnvelope"
       ></button>
 
-      <p class="drag-hint">{{ hasDragged ? '点一下箱子上的信封。' : '镜头靠近后，可以拖动箱子，也可以点信封。' }}</p>
+      <button
+        ref="lidHotspotRef"
+        class="lid-hotspot"
+        type="button"
+        :aria-disabled="!canOpenLid"
+        :disabled="!canOpenLid"
+        aria-label="打开箱子盖"
+        @click="openLid"
+      >
+        <span class="lid-cue" aria-hidden="true">
+          <span class="lid-cue-line"></span>
+        </span>
+      </button>
+
+      <p class="drag-hint">{{ hintText }}</p>
     </section>
 
     <div class="letter-mask" aria-hidden="true"></div>
-
     <section class="letter-dialog" aria-label="信件内容">
-      <div class="opened-envelope" aria-hidden="true">
-        <span class="opened-back"></span>
-        <span class="opened-flap"></span>
-        <span class="opened-front"></span>
-        <span class="opened-seal"></span>
-      </div>
+      <div class="letter-scene">
+        <button class="letter-close" type="button" aria-label="关闭信件" @click="closeLetter">
+          <span aria-hidden="true"></span>
+        </button>
 
-      <article class="letter-paper">
-        <p class="letter-label">给最想见到的人</p>
-        <p class="typewriter">{{ typedText }}<span v-if="stage === 'typing'" class="caret"></span></p>
-      </article>
+        <article class="letter-paper">
+          <span class="paper-tape" aria-hidden="true"></span>
+          <span class="paper-rose" aria-hidden="true"></span>
+          <span class="paper-heart paper-heart-one" aria-hidden="true"></span>
+          <span class="paper-heart paper-heart-two" aria-hidden="true"></span>
+          <span class="paper-heart paper-heart-three" aria-hidden="true"></span>
+          <span class="paper-fx-layer" aria-hidden="true">
+            <span class="paper-fx-heart paper-fx-heart-one"></span>
+            <span class="paper-fx-heart paper-fx-heart-two"></span>
+            <span class="paper-fx-heart paper-fx-heart-three"></span>
+            <span class="paper-fx-heart paper-fx-heart-four"></span>
+            <span class="paper-fx-heart paper-fx-heart-five"></span>
+            <span class="paper-fx-heart paper-fx-heart-six"></span>
+          </span>
+          <span class="paper-sparkles" aria-hidden="true">
+            <span class="paper-sparkles-heart">♥</span>
+            <span class="paper-sparkles-glow"></span>
+            <span class="paper-sparkle paper-sparkle-one"></span>
+            <span class="paper-sparkle paper-sparkle-two"></span>
+            <span class="paper-sparkle paper-sparkle-three"></span>
+          </span>
+          <div class="letter-content">
+            <p class="typewriter">{{ typedText }}<span v-if="stage === 'typing'" class="caret"></span></p>
+            <p v-if="showLetterSign" class="letter-sign">
+              爱你呀<span class="sign-heart" aria-hidden="true"><span class="sign-heart-float">♥</span></span>
+            </p>
+          </div>
+        </article>
+      </div>
     </section>
   </main>
 </template>

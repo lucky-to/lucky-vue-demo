@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/lxgw-wenkai": "^5.2.5",
+    "gsap": "^3.15.0",
     "qrcode": "^1.5.4",
     "three": "^0.184.0",
     "vue": "^3.5.12"
