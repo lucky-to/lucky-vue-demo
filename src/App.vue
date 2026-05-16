@@ -1255,6 +1255,85 @@ const drawStorageBoxTexture = (variant = 'front') => {
 
 const createGiftTexture = drawStorageBoxTexture
 
+const createWrappedGiftTexture = (seed = 1) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  let value = seed * 997
+
+  ctx.fillStyle = '#f7efd9'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  ctx.fillStyle = 'rgba(255,255,255,0.36)'
+  ctx.fillRect(0, 0, canvas.width, 46)
+
+  ctx.strokeStyle = 'rgba(156, 132, 92, 0.08)'
+  ctx.lineWidth = 1
+  for (let x = -80; x < canvas.width; x += 34) {
+    ctx.beginPath()
+    ctx.moveTo(x, 0)
+    ctx.lineTo(x + 150, canvas.height)
+    ctx.stroke()
+  }
+
+  for (let i = 0; i < 92; i += 1) {
+    value = (value * 9301 + 49297) % 233280
+    const x = (value / 233280) * canvas.width
+    value = (value * 9301 + 49297) % 233280
+    const y = (value / 233280) * canvas.height
+    value = (value * 9301 + 49297) % 233280
+    const radius = 1.4 + (value % 5) * 0.55
+
+    ctx.fillStyle = value % 3 === 0 ? 'rgba(126, 89, 47, 0.6)' : 'rgba(174, 112, 55, 0.48)'
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  ctx.globalAlpha = 0.72
+  drawPuppy(ctx, 120 + (seed % 3) * 62, 118 + (seed % 2) * 72, 0.34, seed % 2 ? 'scarf' : 'float')
+  drawStar(ctx, 362, 118 + (seed % 3) * 34, 23, '#e6cc78')
+  drawStar(ctx, 78 + (seed % 4) * 28, 354, 18, '#b7d8dd')
+  drawCherry(ctx, 390, 356, 0.22)
+  ctx.globalAlpha = 1
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  return texture
+}
+
+const createGiftTagTexture = (seed = 1) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = 192
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+
+  ctx.fillStyle = '#f8eed8'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.strokeStyle = 'rgba(149, 121, 82, 0.26)'
+  ctx.lineWidth = 5
+  ctx.strokeRect(9, 9, canvas.width - 18, canvas.height - 18)
+  ctx.fillStyle = 'rgba(156, 121, 80, 0.42)'
+  ctx.beginPath()
+  ctx.arc(canvas.width / 2, 32, 10, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#9b7a56'
+  ctx.font = '600 18px "Comic Sans MS", "Trebuchet MS", sans-serif'
+  ctx.save()
+  ctx.translate(64, 74)
+  ctx.rotate(-0.08)
+  ctx.fillText(seed % 2 ? 'Happy' : 'Lucky', 0, 0)
+  ctx.fillText('day', 20, 28)
+  ctx.restore()
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  return texture
+}
+
 const createGiftMaterials = () => {
   const makeOuterMaterial = (variant, options = {}) => new THREE.MeshStandardMaterial({
     map: createGiftTexture(variant),
@@ -1615,13 +1694,34 @@ const createWrappedGift = ({
   width,
   height,
   depth,
-  color,
-  ribbonColor,
+  seed = 1,
   rotation = 0,
 }) => {
   const group = new THREE.Group()
   group.position.set(x, y, z)
   group.rotation.y = rotation
+  group.rotation.z = (seed % 2 === 0 ? 1 : -1) * 0.035
+
+  const paperMaterial = new THREE.MeshStandardMaterial({
+    map: createWrappedGiftTexture(seed),
+    color: '#fffaf0',
+    roughness: 0.9,
+    emissive: '#f7efd8',
+    emissiveIntensity: 0.025,
+  })
+  const ribbonMaterial = new THREE.MeshStandardMaterial({
+    color: '#f4ead2',
+    roughness: 0.68,
+    metalness: 0.03,
+    transparent: true,
+    opacity: 0.94,
+  })
+  const ribbonEdgeMaterial = new THREE.MeshStandardMaterial({
+    color: '#d8c49d',
+    roughness: 0.78,
+    transparent: true,
+    opacity: 0.42,
+  })
 
   const contactShadow = new THREE.Mesh(
     new THREE.CircleGeometry(Math.max(width, depth) * 0.44, 28),
@@ -1641,42 +1741,99 @@ const createWrappedGift = ({
 
   const box = new THREE.Mesh(
     new RoundedBoxGeometry(width, height, depth, 4, 0.035),
-    new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.76,
-      emissive: color,
-      emissiveIntensity: 0.04,
-    })
+    paperMaterial
   )
   box.castShadow = true
   box.receiveShadow = true
   group.add(box)
 
+  const ribbonWidth = Math.min(width, depth) * 0.16
+  const ribbonDepth = 0.012
   const verticalRibbon = new THREE.Mesh(
-    new RoundedBoxGeometry(width + 0.014, height + 0.018, Math.min(depth * 0.18, 0.12), 2, 0.012),
-    new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.7 })
+    new RoundedBoxGeometry(width + 0.02, height + 0.026, ribbonWidth, 3, 0.014),
+    ribbonMaterial
   )
   verticalRibbon.castShadow = true
   verticalRibbon.receiveShadow = true
   group.add(verticalRibbon)
 
   const horizontalRibbon = new THREE.Mesh(
-    new RoundedBoxGeometry(Math.min(width * 0.18, 0.12), height + 0.02, depth + 0.014, 2, 0.012),
-    new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.7 })
+    new RoundedBoxGeometry(ribbonWidth, height + 0.028, depth + 0.02, 3, 0.014),
+    ribbonMaterial
   )
   horizontalRibbon.castShadow = true
   horizontalRibbon.receiveShadow = true
   group.add(horizontalRibbon)
 
-  const bow = new THREE.Mesh(
-    new THREE.TorusGeometry(Math.min(width, depth) * 0.16, 0.018, 8, 24),
-    new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.68 })
+  const topRibbonA = new THREE.Mesh(
+    new RoundedBoxGeometry(width + 0.028, ribbonDepth, ribbonWidth * 0.72, 2, 0.008),
+    ribbonEdgeMaterial
   )
-  bow.position.y = height * 0.52 + 0.025
-  bow.rotation.x = Math.PI / 2
-  bow.scale.x = 1.4
-  bow.castShadow = true
-  group.add(bow)
+  topRibbonA.position.y = height / 2 + 0.015
+  topRibbonA.rotation.y = 0.02
+  group.add(topRibbonA)
+
+  const topRibbonB = new THREE.Mesh(
+    new RoundedBoxGeometry(ribbonWidth * 0.72, ribbonDepth, depth + 0.028, 2, 0.008),
+    ribbonEdgeMaterial
+  )
+  topRibbonB.position.y = height / 2 + 0.018
+  topRibbonB.rotation.y = -0.02
+  group.add(topRibbonB)
+
+  const bowGroup = new THREE.Group()
+  bowGroup.position.set(0, height / 2 + 0.046, 0)
+  bowGroup.rotation.y = (seed % 3 - 1) * 0.22
+
+  const loopWidth = Math.min(width, depth) * 0.2
+  const loopDepth = Math.min(width, depth) * 0.112
+  ;[-1, 1].forEach((side) => {
+    const loop = new THREE.Mesh(
+      new THREE.TorusGeometry(loopWidth, 0.012, 8, 24),
+      ribbonMaterial
+    )
+    loop.position.x = side * loopWidth * 0.54
+    loop.rotation.x = Math.PI / 2
+    loop.rotation.z = side * 0.38
+    loop.scale.set(0.92, 0.54, 1)
+    loop.castShadow = true
+    bowGroup.add(loop)
+  })
+
+  const knot = new THREE.Mesh(
+    new RoundedBoxGeometry(loopDepth, 0.036, loopDepth, 3, 0.012),
+    ribbonMaterial
+  )
+  knot.castShadow = true
+  bowGroup.add(knot)
+
+  const tailA = new THREE.Mesh(
+    new RoundedBoxGeometry(ribbonWidth * 0.5, 0.018, Math.min(depth * 0.34, 0.17), 2, 0.007),
+    ribbonMaterial
+  )
+  tailA.position.set(-loopWidth * 0.16, -0.018, loopDepth * 0.98)
+  tailA.rotation.y = -0.28
+  bowGroup.add(tailA)
+
+  const tailB = tailA.clone()
+  tailB.position.x = loopWidth * 0.24
+  tailB.position.z = -loopDepth * 0.9
+  tailB.rotation.y = 0.34
+  bowGroup.add(tailB)
+  group.add(bowGroup)
+
+  const tag = new THREE.Mesh(
+    new RoundedBoxGeometry(width * 0.22, 0.01, depth * 0.34, 2, 0.008),
+    new THREE.MeshStandardMaterial({
+      map: createGiftTagTexture(seed),
+      color: '#fff8e8',
+      roughness: 0.88,
+    })
+  )
+  tag.position.set(width * 0.22, height / 2 + 0.026, depth * 0.22)
+  tag.rotation.y = -0.22
+  tag.castShadow = true
+  group.add(tag)
 
   return group
 }
@@ -1722,11 +1879,11 @@ const createBoxContents = () => {
   }
 
   const gifts = [
-    { x: -0.78, z: -0.48, width: 0.58, height: 0.52, depth: 0.56, color: '#e99aa4', ribbonColor: '#fff4cf', rotation: 0.42, sink: 0.024 },
-    { x: -0.06, z: -0.5, width: 0.72, height: 0.46, depth: 0.5, color: '#93c9d5', ribbonColor: '#f6d27b', rotation: -0.06, sink: 0.02 },
-    { x: 0.68, z: -0.34, width: 0.48, height: 0.48, depth: 0.48, color: '#b7d9a1', ribbonColor: '#f5a0aa', rotation: 0.58, sink: 0.022 },
-    { x: -0.46, z: 0.22, width: 0.5, height: 0.38, depth: 0.42, color: '#f3c86e', ribbonColor: '#87bccc', rotation: -0.7, sink: 0.018 },
-    { x: 0.36, z: 0.26, width: 0.52, height: 0.36, depth: 0.46, color: '#d9b3df', ribbonColor: '#fff2c9', rotation: 0.3, sink: 0.018 },
+    { x: -0.78, z: -0.48, width: 0.58, height: 0.52, depth: 0.56, rotation: 0.42, sink: 0.024, seed: 1 },
+    { x: -0.06, z: -0.5, width: 0.72, height: 0.46, depth: 0.5, rotation: -0.06, sink: 0.02, seed: 2 },
+    { x: 0.68, z: -0.34, width: 0.48, height: 0.48, depth: 0.48, rotation: 0.58, sink: 0.022, seed: 3 },
+    { x: -0.46, z: 0.22, width: 0.5, height: 0.38, depth: 0.42, rotation: -0.7, sink: 0.018, seed: 4 },
+    { x: 0.36, z: 0.26, width: 0.52, height: 0.36, depth: 0.46, rotation: 0.3, sink: 0.018, seed: 5 },
   ]
 
   gifts.forEach((gift) => {
