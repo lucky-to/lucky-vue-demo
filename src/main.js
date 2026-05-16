@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import '@fontsource/lxgw-wenkai/500.css'
 import './style.css'
-import App from './App.vue'
+import Root from './Root.vue'
 
-createApp(App).mount('#app')
+createApp(Root).mount('#app')
