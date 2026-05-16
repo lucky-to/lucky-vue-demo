@@ -84,7 +84,12 @@ const startMusic = async () => {
   loop()
 }
 
-const handleStart = async () => {
+const toggleMusic = async () => {
+  if (musicEnabled.value) {
+    stopMusic()
+    return
+  }
+
   await startMusic()
 }
 
@@ -110,7 +115,7 @@ onMounted(() => {
     revealLetter()
   }, 900)
 
-  handleStart().catch(() => {
+  startMusic().catch(() => {
     musicReady.value = false
     musicEnabled.value = false
   })
@@ -128,20 +133,12 @@ onBeforeUnmount(() => {
     <div class="backdrop"></div>
     <section class="paper-shell">
       <header class="topbar">
-        <button class="music-btn" type="button" @click="handleStart">
-          {{ musicEnabled ? '背景音乐' : '开启音乐' }}
+        <button class="music-btn" type="button" @click="toggleMusic">
+          {{ musicEnabled ? '♪' : '♫' }}
         </button>
       </header>
 
       <article class="paper">
-        <span class="line line-1"></span>
-        <span class="line line-2"></span>
-        <span class="line line-3"></span>
-        <span class="line line-4"></span>
-        <button class="seal" type="button" @click="handleStart">
-          <span>{{ musicEnabled ? '已激活' : '点击激活' }}</span>
-        </button>
-
         <div class="content">
           <p class="typewriter">{{ typedText }}<span v-if="revealStage === 'typing'" class="caret"></span></p>
         </div>
@@ -157,130 +154,100 @@ onBeforeUnmount(() => {
   position: relative;
   min-height: 100vh;
   min-height: 100svh;
-  overflow: hidden;
+  overflow: hidden auto;
+  color: #82364a;
   background:
-    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.82), transparent 32%),
-    radial-gradient(circle at 82% 16%, rgba(246, 198, 196, 0.45), transparent 24%),
-    linear-gradient(180deg, #646162 0%, #ece6dc 24%, #f7f3ec 100%);
+    linear-gradient(180deg, rgba(60, 57, 57, 0.7) 0 72px, transparent 72px),
+    linear-gradient(90deg, rgba(46, 38, 37, 0.1), transparent 12%, transparent 88%, rgba(46, 38, 37, 0.1)),
+    #f2eee6;
 }
 
 .backdrop {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(32, 26, 29, 0.22), transparent 14%),
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.26), transparent 26%);
-  opacity: 0.6;
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.28), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0));
+  opacity: 0.42;
+  pointer-events: none;
 }
 
 .paper-shell {
   position: relative;
   z-index: 1;
   display: grid;
-  min-height: 100vh;
   min-height: 100svh;
-  align-content: center;
-  justify-items: center;
-  padding: 28px 14px 36px;
+  justify-items: stretch;
+  padding: 72px 0 0;
 }
 
 .topbar {
-  width: min(100%, 420px);
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
+  position: fixed;
+  right: 16px;
+  top: 18px;
+  z-index: 5;
 }
 
 .music-btn {
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
-  color: #5b4248;
-  font-size: 13px;
-  background: rgba(255, 250, 244, 0.9);
-  box-shadow: 0 8px 18px rgba(56, 42, 48, 0.1);
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 50%;
+  color: #8e3c51;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 19px;
+  background: rgba(255, 253, 248, 0.88);
+  box-shadow: 0 8px 20px rgba(49, 37, 40, 0.14);
+  cursor: pointer;
 }
 
 .paper {
   position: relative;
-  width: min(100%, 420px);
-  min-height: min(78svh, 780px);
-  overflow: hidden;
-  border: 1px solid rgba(121, 97, 84, 0.16);
-  border-radius: 12px;
-  padding: 92px 22px 34px;
+  width: min(100%, 460px);
+  min-height: calc(100svh - 72px);
+  margin: 0 auto;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  padding: 78px clamp(22px, 7vw, 44px) 72px;
   background:
-    repeating-linear-gradient(180deg, transparent 0 36px, rgba(135, 118, 103, 0.22) 37px 38px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 251, 245, 0.98));
+    repeating-linear-gradient(180deg, transparent 0 43px, rgba(92, 86, 78, 0.26) 44px 45px),
+    linear-gradient(180deg, #fffefb, #fffaf2 100%);
   box-shadow:
-    0 24px 68px rgba(71, 51, 54, 0.24),
+    0 0 0 1px rgba(90, 82, 72, 0.06),
+    0 16px 44px rgba(57, 45, 45, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transform: translateY(18px) scale(0.94);
+  transform: translateY(16px);
   opacity: 0;
-  animation: paper-in 780ms ease forwards;
+  animation: paper-in 720ms ease forwards;
 }
 
 .letter-page.stage-typing .paper,
 .letter-page.stage-done .paper {
   opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-.line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: rgba(88, 83, 82, 0.26);
-}
-
-.line-1 { top: 88px; }
-.line-2 { top: 140px; }
-.line-3 { top: 192px; }
-.line-4 { top: 244px; }
-
-.seal {
-  position: absolute;
-  left: 14px;
-  top: 18px;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 38% 40%, rgba(255, 255, 255, 0.55), transparent 18%),
-    linear-gradient(145deg, #736370, #52505d);
-  box-shadow: 0 8px 18px rgba(64, 52, 60, 0.22);
-  cursor: pointer;
-}
-
-.seal span {
-  position: absolute;
-  left: -6px;
-  bottom: -8px;
-  padding: 6px 10px;
-  border-radius: 16px;
-  color: #694a35;
-  font-size: 12px;
-  background: linear-gradient(180deg, #f8e1ba, #efd296);
-  box-shadow: 0 8px 18px rgba(130, 100, 65, 0.18);
-  white-space: nowrap;
+  transform: translateY(0);
 }
 
 .content {
   position: relative;
   z-index: 1;
-  margin-top: 16px;
+  margin: 0;
 }
 
 .typewriter {
   margin: 0;
-  color: #7f3045;
+  color: #923145;
   font-family: 'LXGW WenKai', 'KaiTi', 'STKaiti', serif;
-  font-size: clamp(20px, 4.4vw, 27px);
-  line-height: 1.88;
+  font-size: clamp(18px, 4.4vw, 23px);
+  font-weight: 500;
+  line-height: 2.08;
   white-space: pre-wrap;
   text-align: center;
-  text-shadow: 0 1px 0 rgba(255, 248, 240, 0.5);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-shadow: none;
 }
 
 .caret {
@@ -293,10 +260,12 @@ onBeforeUnmount(() => {
 }
 
 .footer-note {
-  margin: 14px 0 0;
-  color: rgba(255, 248, 246, 0.82);
+  width: min(100%, 480px);
+  margin: 12px auto 28px;
+  color: rgba(128, 72, 83, 0.58);
   font-size: 13px;
   letter-spacing: 0.08em;
+  text-align: center;
   opacity: 0;
   transform: translateY(8px);
   transition: 360ms ease;
@@ -310,23 +279,23 @@ onBeforeUnmount(() => {
 @keyframes paper-in {
   from {
     opacity: 0;
-    transform: translateY(24px) scale(0.92);
+    transform: translateY(20px);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 @media (max-width: 420px) {
   .paper {
-    padding-inline: 18px;
+    width: calc(100% - 18px);
+    padding-inline: 20px;
   }
 
-  .seal {
-    width: 66px;
-    height: 66px;
+  .typewriter {
+    font-size: 19px;
   }
 }
 </style>
