@@ -147,7 +147,7 @@ const showLetterSign = computed(() => stage.value === 'done')
 const hintText = computed(() => {
   if (canOpenLid.value) return '点一下箱子盖，看看里面。'
   if (isBoxOpening.value) return '箱子正在打开。'
-  if (isBoxOpen.value) return '里面的礼物和那封信都在这里。'
+  if (isBoxOpen.value) return ''
   return hasDragged.value ? '点一下箱子上的信封。' : '镜头靠近后，可以拖动箱子，也可以点信封。'
 })
 
@@ -2208,7 +2208,7 @@ onBeforeUnmount(() => {
         </span>
       </button>
 
-      <p class="drag-hint">{{ hintText }}</p>
+      <p v-if="hintText" class="drag-hint">{{ hintText }}</p>
     </section>
 
     <div class="letter-mask" aria-hidden="true"></div>
